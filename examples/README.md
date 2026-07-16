@@ -3,78 +3,106 @@
 The optifarm playground. Nothing here is imported by the library — these are
 files to run, read and edit.
 
-## `demo.py`
-
 ```bash
-python examples/demo.py
+python examples/demo_sugarcane.py     # hand patterns lose. use the solver.
+python examples/demo_cactus.py        # hand pattern already wins. mostly don't.
 ```
 
-Runs with no arguments. Shows the input terrain, the layouts two hand-built
-patterns produce, the optimal layout, the metrics, and how much the exact
-optimisation beats each pattern by.
-
-To experiment, edit **one line** in the configuration block at the top:
+Both run with no arguments. Each shows the input terrain, the layouts people
+build by hand, the optimal layout, the metrics, and the comparison. To
+experiment, edit **one line** at the top of either file:
 
 ```python
-TERRAIN = "l_shape"      # options: see the TERRAINS dict above
-CROP    = Sugarcane()
+TERRAIN = "l_shape"      # options: see TERRAINS in _shared.py
 SOLVER  = "ilp"
 
 RUN_ALL = False          # True = run every terrain, with a summary table
 ```
 
-The terrains ship ready to use: `rectangle_9x9`, `l_shape`, `with_obstacles` and
-`large_15x15` (that one takes ~12s, deliberately — it is there to feel the cost
-of *proving* optimality). Adding a terrain means adding a string to the dict.
+## Why two files and not one crop switch
 
-The file is commented as documentation: it is the explanation of how to use the
-API, not just a demonstration.
+There used to be one `demo.py` with a `CROP` knob. It was a trap: the baselines
+are hand-written patterns, not solver output, so setting `CROP = Cactus()` laid
+**water stripes on a cactus farm** and rendered the nonsense without complaint.
 
-## The baselines it compares against
+The deeper reason is that the two demos teach opposite lessons, and a demo's job
+is to teach one:
 
-Both are real layouts, both are legal, and they lose to the solver for different
-reasons — which is the interesting part:
+- **`demo_sugarcane.py`** — the hand patterns lose by 13–31%, but a player who
+  follows no pattern beats every pattern, and against *them* the solver wins
+  **4–7%**. Worth running, for less than the headline suggests.
+- **`demo_cactus.py`** — the hand checkerboard *is* the optimum on open ground,
+  and a player who just plants greedily ties the optimum on 4 of 5 terrains. The
+  solver's best win over them is **+2.9%**. Don't bother.
 
-- **Checkerboard** — alternating water and cane. Trivially correct: every cane
-  has four water neighbours, so none can ever be stranded. That safety is the
-  weakness — cane needs *one* adjacent water, so the pattern buys a guarantee it
-  does not need and pays half the terrain for it. Pinned near 50% everywhere.
-- **1x2 stripes** — one water stripe per two rows of cane. Each stripe serves the
-  row above and below, which is exactly cane's reach. Lands at 2/3 on open
-  ground, and is the pattern the community actually builds.
+One parameterised file tells both badly: cactus's headline `+0.0%` reads as a
+failure inside a narrative built around "the solver wins big". Each demo now
+fixes its own crop, so the trap cannot be re-armed.
 
-Both are steelmanned rather than strawmanned: the demo tries all 6 stripe
-variants (2 orientations × 3 offsets) and both checkerboard colourings, and
-reports the best. On a 9x9 the right stripe offset yields 54 cane and the wrong
-one 45 — comparing against the worse variant would inflate optifarm's win for
-free.
+`_shared.py` holds the terrains and the print formatting. You do not need to read
+it. The terrains live there so both demos solve the *same* land — that is what
+makes the cross-crop numbers mean anything (on `scattered`, the identical 5×5
+grows 12 sugarcane and 2 cactus).
 
-`tests/test_demo.py` checks both baselines are legal layouts, cell by cell.
+## The baselines
+
+Each demo measures against what real players do, and steelmans it — every
+alignment is tried and the best reported, because comparing against a
+badly-aligned pattern would inflate optifarm's win for free.
+
+| Demo | Strategy | What it gets wrong |
+|------|----------|--------------------|
+| Sugarcane | Checkerboard | Safe but wasteful: gives every cane 4 water neighbours when 1 would do. Pinned near 50%. |
+| Sugarcane | 1×2 stripes | Efficient (2/3) but brittle: a `#` on a stripe strands the cane it fed. |
+| Sugarcane | Greedy water | **Little.** No pattern — just dig the cell that buys the most cane. Beats both patterns; within 4–7% of optimal. |
+| Cactus | Checkerboard | Only its *globality*: it must pick one colour of the board for the whole map, and walls make that wrong locally. Optimal on open ground. |
+| Cactus | Greedy sweep | **Almost nothing.** Ties the optimum on 4 of 5 terrains. |
+
+### Pick a real opponent
+
+A *pattern* is not the best a person can do, so measuring only against patterns
+flatters the solver. Both demos therefore include a no-pattern player, and in both
+cases that player beats every pattern and cuts the solver's margin to single
+digits. Those are the numbers to judge this library by.
+
+There is no "naive sweep" baseline for sugarcane, and the reason is worth knowing:
+it degenerates. Walk the field planting cane where water already sits and digging
+where it does not, and the alternation propagates into precisely a **checkerboard**
+— at whichever parity the corner forced, scoring 40 against the checkerboard's 41.
+It is not a distinct strategy, it is the same one denied its choice of colour, so
+adding it would mean adding a deliberately worse-aligned copy of a row already in
+the table. (For cactus the same sweep is *near-optimal* — which is exactly why
+cactus is the easy problem and sugarcane is not.)
+
+### Filling the holes
+
+Stamping a pattern and pruning what broke leaves *holes* — and a player looking at
+a plantable hole plants in it. A baseline that walks away from free production is
+a strawman, so both demos fill their gaps before being measured.
+
+This matters more than it sounds:
+
+- **Cactus**: the fill is worth a cactus or two per map. It is also what killed a
+  third baseline. There used to be a "sparse grid" (a gap in both directions
+  around each cactus) that scored 25 on a 9×9 and made the solver look +64%
+  better. Fill its holes and it becomes *exactly* the checkerboard — 41. It was
+  never a distinct strategy, only an unfilled one, and the +64% was fiction.
+- **Sugarcane**: the fill provably never fires, so the demo does none. A cell is
+  only empty because the prune found it had **no adjacent water** — which is
+  precisely what planting cane there would require. The condition that creates a
+  hole is the negation of the one that could fill it.
+
+`tests/test_demo.py` checks every baseline is a *legal* layout under its own
+crop's rule — using the same validators that check the solver's own output — and
+separately that every baseline is **maximal**, so neither demo can regress into
+flattering its own optimiser.
 
 ## Coming later
 
-- **`cactus.py`** — the `Cactus` rule now ships, so this one is just a demo away.
-  It is the interesting example from a modelling standpoint: cane wants water
-  nearby (positive adjacency), cactus wants the opposite (negative adjacency),
-  and both fall out of the same `AdjacencyRequirement` with only the sign changed.
-  Usable from the API today:
-
-  ```python
-  from mcfarm_opt import Cactus, optimize
-  print(optimize("\n".join(["....."] * 5), crop=Cactus()).render())
-  ```
-
-  ```
-  C.C.C
-  .C.C.
-  C.C.C
-  .C.C.
-  C.C.C
-  ```
-
-- **`benchmark.py`** — how proving time scales with terrain size, and where the
-  exact solver should give way to a heuristic. The start of that curve is already
-  visible for sugarcane: 9x9 solves in 0.07s, 12x12 in 0.9s, 15x15 in 12s, and an
-  18x18 does not close the proof within 30s. Cactus is the control group — it is
-  bipartite maximum independent set, so a 40x40 proves in 0.34s and the curve is
-  flat.
+- **`benchmark.py`** — how proving time scales, and where the exact solver should
+  give way to a heuristic. The curve is already visible for sugarcane: 9×9 in
+  0.07s, 12×12 in 0.9s, 15×15 in 12s, and an 18×18 does not close in 30s. Cactus
+  is the control group — bipartite maximum independent set, so a 40×40 proves in
+  0.34s and the curve is flat.
+- **`wheat.py`** — once a `WheatRule` exists. Its radius-4 hydration is the third
+  shape of adjacency rule, and the one no current demo shows.

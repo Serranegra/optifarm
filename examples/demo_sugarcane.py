@@ -1,4 +1,4 @@
-"""Runnable demo for optifarm: `python examples/demo.py`.
+"""Runnable demo for sugarcane: `python examples/demo_sugarcane.py`.
 
 This file is didactic -- it *is* the usage documentation. It runs with no
 arguments and no dependency beyond what the project already needs.
@@ -7,105 +7,53 @@ To experiment, edit ONE line in the configuration block below (``TERRAIN``) and
 run it again. Or set ``RUN_ALL = True`` to see the summary table across every
 terrain at once.
 
-What it shows:
+The story here
+--------------
 
-1. the input terrain;
-2. the layouts two hand-built patterns produce (checkerboard, 1x2 stripes);
-3. the optimal layout optifarm computed;
-4. the metrics, and how much the exact optimisation beats each hand pattern by.
+Sugarcane needs water orthogonally adjacent, so a farm is a trade: every water
+block costs a cell of production but can feed up to four neighbours. People solve
+that trade with patterns, and **the patterns lose** -- by 13% to 31%, worst where
+obstacles break them.
+
+That number is true and slightly dishonest, so the demo does not stop there. A
+pattern is not the best a person can do. A player who follows no pattern and just
+digs the water that pays best (``baseline_greedy_water``) beats every pattern
+here, and against *that* the exact optimum is worth **4% to 7%** -- and on
+``ragged``, nothing at all.
+
+So sugarcane is the case where this library is worth running, but the honest size
+of the prize is single digits against someone thinking, not the 30% you get by
+picking a template as your opponent. For the case where it is worth nothing, see
+``demo_cactus.py``.
 
 Everything here uses only the public API (``optimize``, ``FarmLayout``,
-``FarmMetrics``, ``Grid``, ``BlockType``). Nothing from the core is
-reimplemented.
+``BlockType``). Nothing from the core is reimplemented. The printing plumbing
+lives in ``_shared.py`` and is not worth reading.
 """
 
 from __future__ import annotations
 
-import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from typing import Literal
 
-from mcfarm_opt import (
-    BlockType,
-    Cell,
-    CropRule,
-    FarmLayout,
-    FarmMetrics,
-    Grid,
-    SolveStatus,
-    Sugarcane,
-    optimize,
-    parse_grid,
+from _shared import (
+    TERRAINS,
+    arrow,
+    build_layout,
+    gain_over,
+    heading,
+    indent,
+    print_metrics,
+    print_table,
 )
 
-# ============================================================================
-# TERRAINS
-# ============================================================================
-# '.' = free ground, '#' = obstacle (rock, natural water, whatever).
-# Every line of a terrain must be the same length.
-
-TERRAINS: dict[str, str] = {
-    # Empty rectangle: the simplest case, good for checking against intuition.
-    "rectangle_9x9": """\
-.........
-.........
-.........
-.........
-.........
-.........
-.........
-.........
-.........""",
-    # L-shaped terrain: a rectangular bite out of the top-right corner.
-    # Shows the solver coping with an irregular border.
-    "l_shape": """\
-......####
-......####
-......####
-..........
-..........
-..........
-..........
-..........""",
-    # Obstacles scattered through the middle: the case where hand patterns
-    # suffer, because a '#' sitting on a water stripe strands the cane around it.
-    "with_obstacles": """\
-..........
-...##.....
-..........
-.....#....
-..##......
-..........
-......##..
-..........
-...#......
-..........""",
-    # Large: 225 cells. This is the one to feel the solver's cost -- proving
-    # optimality here takes seconds, against milliseconds for the others.
-    "large_15x15": """\
-...............
-...............
-...............
-...............
-...............
-...............
-...............
-...............
-...............
-...............
-...............
-...............
-...............
-...............
-...............""",
-}
+from mcfarm_opt import BlockType, Cell, FarmLayout, Grid, Sugarcane, optimize, parse_grid
 
 # ============================================================================
 # CONFIGURATION -- edit here
 # ============================================================================
 
-TERRAIN: str = "large_15x15"  # options: rectangle_9x9 | l_shape | with_obstacles | large_15x15
-CROP: CropRule = Sugarcane()  # options: Sugarcane() (the only one implemented so far)
+TERRAIN: str = "l_shape"  # options: see TERRAINS in _shared.py
 SOLVER: str = "ilp"  # options: "ilp" (exact, via CP-SAT)
 
 RUN_ALL: bool = False  # True = ignore TERRAIN, run every terrain with a summary table
@@ -116,12 +64,20 @@ RUN_ALL: bool = False  # True = ignore TERRAIN, run every terrain with a summary
 # is not provably optimal, and the demo says so rather than pretending.
 TIME_LIMIT: float | None = 30.0
 
+# The crop is fixed. It is not a knob, because the baselines below only make
+# sense for sugarcane -- water stripes on a cactus farm would be nonsense, and
+# nonsense that still renders. Run demo_cactus.py for cactus.
+CROP = Sugarcane()
+
 
 # ============================================================================
 # BASELINES: the patterns people build by hand
 # ============================================================================
 # Two of them, and the contrast is the point. Both are legal layouts; both are
 # beaten by the solver; they lose for different reasons.
+#
+# Note there is no "fill the leftover gaps" step here, unlike demo_cactus.py --
+# and its absence is deliberate rather than forgotten. See _prune_unsupported_cane.
 
 Orientation = Literal["rows", "columns"]
 
@@ -137,6 +93,24 @@ def _prune_unsupported_cane(grid: Grid, assignment: dict[Cell, BlockType]) -> No
 
     One pass is enough: pruning only removes cane, and a cane cell's validity
     depends solely on its water neighbours, which never change.
+
+    Why there is no fill afterwards
+    -------------------------------
+
+    A real player would never leave a plantable cell bare, so a fair baseline has
+    to plant in the holes its prune left -- ``demo_cactus.py`` does exactly that,
+    and it changes its numbers a lot.
+
+    Here it would change nothing, and provably so. A cell is EMPTY only because
+    this prune emptied it, and it emptied it precisely because the cell has *no
+    adjacent water*. Planting cane there requires *adjacent water*. The condition
+    that creates a hole is the negation of the condition that could fill it, so
+    there is never anything to fill. These patterns are already maximal.
+
+    That is an argument, and arguments rot. ``tests/test_demo.py`` asserts the
+    property directly -- no empty cell in a sugarcane baseline has water beside
+    it -- so a future pattern that *does* leave a fillable hole fails the suite
+    instead of quietly flattering the solver.
     """
     for cell in grid.free_cells():
         if assignment[cell] is BlockType.CROP:
@@ -177,10 +151,6 @@ def _apply_checkerboard(grid: Grid, parity: int) -> dict[Cell, BlockType]:
     stranded -- and that safety is exactly why it is weak: it buys a guarantee
     it does not need by spending half the terrain on water. Cane only needs
     *one* adjacent water, and the checkerboard gives every cane four.
-
-    Args:
-        grid: the terrain.
-        parity: which colour of the board gets the water (0 or 1).
     """
     assignment: dict[Cell, BlockType] = {}
     for cell in grid.cells():
@@ -194,30 +164,75 @@ def _apply_checkerboard(grid: Grid, parity: int) -> dict[Cell, BlockType]:
     return assignment
 
 
-def _build_layout(
-    grid: Grid, assignment: Mapping[Cell, BlockType], name: str
-) -> FarmLayout:
-    """Wrap a raw assignment into a FarmLayout, with its blocks counted.
+def _apply_greedy_water(grid: Grid) -> dict[Cell, BlockType]:
+    """Plant no pattern: repeatedly dig the one water that creates the most cane.
 
-    Reuses the library's own FarmMetrics, so efficiency comes out measured over
-    the free cells (obstacles excluded) for free -- it is the definition the
-    core already uses.
+    This is the thoughtful player, and it is the baseline that matters. Start
+    with bare ground and ask, over and over, "if I flooded exactly one more cell,
+    which one buys me the most cane?" Dig that one. Stop when no dig pays for
+    itself -- a water cell costs a square of production, so it has to feed at
+    least two new canes to be worth it.
+
+    Why this and not a sweep
+    ------------------------
+
+    The obvious greedy is a sweep: walk the field, plant cane where water is
+    already beside you, dig water where it is not. That one degenerates. Cell
+    (0,0) has no water, so it digs; (0,1) now has water, so it plants; (0,2)
+    digs again -- and the alternation propagates into precisely a **checkerboard**,
+    at whichever parity the corner happened to force. It scores 40 on the 9x9
+    against the checkerboard baseline's 41, because it is a checkerboard, just
+    one that never got to choose its colour. Adding it to the table would mean
+    adding a deliberately worse-aligned copy of a row already there, which is the
+    exact strawman every other baseline here is careful to avoid.
+
+    So the interesting greedy is this one, and it is strong: it beats the 1x2
+    stripes on every terrain in the demo, and it ties the solver outright on
+    `ragged`. Against it, the exact optimum is worth single digits.
     """
-    counts = {block: 0 for block in BlockType}
-    for block in assignment.values():
-        counts[block] += 1
+    free = list(grid.free_cells())
+    neighbours = {cell: [n for n in grid.neighbors(cell) if grid.is_free(n)] for cell in free}
+    water: set[Cell] = set()
 
-    metrics = FarmMetrics(
-        n_crop=counts[BlockType.CROP],
-        n_support=counts[BlockType.WATER],
-        n_empty=counts[BlockType.EMPTY],
-        n_obstacle=counts[BlockType.OBSTACLE],
-        solve_time=0.0,
-        # A hand pattern is a valid layout, but nobody proved it is the best one
-        # -- FEASIBLE says precisely that. Claiming OPTIMAL here would be a lie.
-        status=SolveStatus.FEASIBLE,
-    )
-    return FarmLayout(grid=grid, assignment=dict(assignment), metrics=metrics, crop_name=name)
+    def cane_total(flooded: set[Cell]) -> int:
+        return sum(
+            1
+            for cell in free
+            if cell not in flooded and any(n in flooded for n in neighbours[cell])
+        )
+
+    current = 0
+    while True:
+        best_gain, best_cell = 0, None
+        for cell in free:  # row-major, so ties break deterministically
+            if cell in water:
+                continue
+            water.add(cell)
+            gain = cane_total(water) - current
+            water.discard(cell)
+            if gain > best_gain:
+                best_gain, best_cell = gain, cell
+        if best_cell is None:
+            break
+        water.add(best_cell)
+        current += best_gain
+
+    assignment: dict[Cell, BlockType] = {}
+    for cell in grid.cells():
+        if grid.is_obstacle(cell):
+            assignment[cell] = BlockType.OBSTACLE
+        elif cell in water:
+            assignment[cell] = BlockType.WATER
+        else:
+            assignment[cell] = BlockType.EMPTY
+
+    # Every cell that ended up next to water becomes cane. By construction this
+    # is the fill, and here it is doing real work rather than being a no-op.
+    for cell in free:
+        if assignment[cell] is BlockType.EMPTY:
+            if any(assignment[n] is BlockType.WATER for n in grid.neighbors(cell)):
+                assignment[cell] = BlockType.CROP
+    return assignment
 
 
 def baseline_stripes_1x2(grid: Grid) -> FarmLayout | None:
@@ -234,7 +249,7 @@ def baseline_stripes_1x2(grid: Grid) -> FarmLayout | None:
         blocked grid, or one too narrow to fit a water stripe and a cane row).
     """
     candidates = [
-        _build_layout(grid, _apply_stripes(grid, orientation, offset), "1x2 stripes")
+        build_layout(grid, _apply_stripes(grid, orientation, offset), "1x2 stripes")
         for orientation in ("rows", "columns")
         for offset in (0, 1, 2)
     ]
@@ -254,78 +269,38 @@ def baseline_checkerboard(grid: Grid) -> FarmLayout | None:
         has no neighbour to water it).
     """
     candidates = [
-        _build_layout(grid, _apply_checkerboard(grid, parity), "checkerboard")
+        build_layout(grid, _apply_checkerboard(grid, parity), "checkerboard")
         for parity in (0, 1)
     ]
     best = max(candidates, key=lambda layout: layout.metrics.n_crop)
     return best if best.metrics.n_crop > 0 else None
 
 
-# The hand patterns to measure against, worst-expected first so the printed
-# comparison reads as a progression up to the optimum.
+def baseline_greedy_water(grid: Grid) -> FarmLayout | None:
+    """Return the layout a thoughtful player reaches by digging the best water first."""
+    layout = build_layout(grid, _apply_greedy_water(grid), "greedy water")
+    return layout if layout.metrics.n_crop > 0 else None
+
+
+# Worst-expected first, so the printed comparison reads as a progression up to
+# the optimum. The last one is the one that matters: it is the strongest thing a
+# person does without a solver, so it is what the solver has to beat to be worth
+# running at all.
 BASELINES: tuple[tuple[str, Callable[[Grid], FarmLayout | None]], ...] = (
     ("Checkerboard", baseline_checkerboard),
     ("1x2 stripes", baseline_stripes_1x2),
+    ("Greedy water", baseline_greedy_water),
 )
 
 
 # ============================================================================
-# PRINTING
+# RUNNING
 # ============================================================================
 
 
-def _arrow() -> str:
-    """Return '→' if the terminal can encode it, else '->'.
-
-    The default Windows console is cp1252, which has no U+2192: printing the
-    arrow there raises UnicodeEncodeError and kills the demo mid-comparison.
-    Rather than reconfiguring the whole stdout, we ask and degrade this one
-    character.
-    """
-    try:
-        "→".encode(sys.stdout.encoding or "ascii")
-    except (UnicodeEncodeError, LookupError):
-        return "->"
-    return "→"
-
-
-def _indent(text: str, spaces: int = 2) -> str:
-    """Indent every line, so the grid does not hug the terminal margin."""
-    prefix = " " * spaces
-    return "\n".join(prefix + line for line in text.splitlines())
-
-
-def _heading(text: str) -> None:
-    """Print a section header."""
-    print()
-    print("=" * 66)
-    print(f" {text}")
-    print("=" * 66)
-
-
-def print_metrics(metrics: FarmMetrics) -> None:
-    """Print a layout's metrics, one per line."""
-    print(f"  cane ......... {metrics.n_crop}")
-    print(f"  water ........ {metrics.n_support}")
-    print(f"  free, unused . {metrics.n_empty}")
-    print(
-        f"  efficiency ... {metrics.efficiency:.1f}%"
-        f"  (over {metrics.n_free} free cells, obstacles excluded)"
-    )
-    print(f"  solver time .. {metrics.solve_time:.3f}s")
-    print(f"  status ....... {metrics.status.value}")
-    if not metrics.is_optimal:
-        print("  WARNING: the time limit ran out before optimality was proven.")
-        print("           The layout is valid; the cane count is a lower bound.")
-
-
 def print_comparison(optimal: FarmLayout, baselines: list[tuple[str, FarmLayout | None]]) -> None:
-    """Print how the optimum compares against each hand-built pattern.
-
-    Degrades gracefully: a pattern that does not apply to this terrain is
-    reported as such rather than crashing or being silently dropped.
-    """
-    arrow = _arrow()
+    """Print how the optimum compares against each hand-built pattern."""
+    mark = arrow()
     print()
     print("Compared against the hand-built patterns:")
 
@@ -333,28 +308,25 @@ def print_comparison(optimal: FarmLayout, baselines: list[tuple[str, FarmLayout 
         if layout is None:
             print(f"  {label + ':':<20} does not apply to this terrain (no stripe fits)")
             continue
-        n = layout.metrics.n_crop
-        gain = 100.0 * (optimal.metrics.n_crop - n) / n
+        gain = gain_over(optimal, layout)
         verdict = (
-            f"{arrow} optifarm +{gain:.1f}%"
+            f"{mark} optifarm +{gain:.1f}%"
             if gain > 0
-            else f"{arrow} tie: this pattern is already optimal here"
+            else f"{mark} tie: this pattern is already optimal here"
             if gain == 0
             # Impossible: the optimum is by definition >= any valid layout. If
             # this fires, either the prune or the model is broken.
-            else f"{arrow} {gain:.1f}%  (!! the optimum should never lose)"
+            else f"{mark} {gain:.1f}%  (!! the optimum should never lose)"
         )
-        print(f"  {label + ':':<20} {n:3d} cane  ({layout.metrics.efficiency:5.1f}%)   {verdict}")
+        print(
+            f"  {label + ':':<20} {layout.metrics.n_crop:3d} cane  "
+            f"({layout.metrics.efficiency:5.1f}%)   {verdict}"
+        )
 
     print(
         f"  {'Optimal (optifarm):':<20} {optimal.metrics.n_crop:3d} cane  "
         f"({optimal.metrics.efficiency:5.1f}%)"
     )
-
-
-# ============================================================================
-# RUNNING
-# ============================================================================
 
 
 def run_one(
@@ -389,49 +361,46 @@ def run_one(
     height, width = grid.shape
     n_free = len(list(grid.free_cells()))
     n_obstacles = len(list(grid.obstacles()))
-    _heading(f"Terrain: {name}  ({height}x{width}, {n_free} free, {n_obstacles} obstacles)")
+    heading(f"Sugarcane on {name}  ({height}x{width}, {n_free} free, {n_obstacles} obstacles)")
 
     print()
     print("Input  ('.' free, '#' obstacle):")
-    print(_indent(terrain))
+    print(indent(terrain))
 
     for label, layout in baselines:
         if layout is None:
             continue
         print()
         print(f"{label} by hand  ('W' water, 'C' cane, '.' free but unused):")
-        print(_indent(layout.render()))
+        print(indent(layout.render()))
 
     print()
     print(f"Optimal layout from optifarm  (crop: {optimal.crop_name}, solver: {SOLVER}):")
-    print(_indent(optimal.render()))
+    print(indent(optimal.render()))
 
     print()
     print("Metrics:")
-    print_metrics(optimal.metrics)
+    print_metrics(optimal.metrics, crop_word="cane", support_word="water")
 
     print_comparison(optimal, baselines)
     return optimal, baselines
 
 
-def _column(layout: FarmLayout | None) -> str:
+def _cell(layout: FarmLayout | None) -> str:
     """Format one baseline's cell for the summary table."""
     if layout is None:
         return "n/a"
     return f"{layout.metrics.n_crop} ({layout.metrics.efficiency:.1f}%)"
 
 
-def _gain(optimal: FarmLayout, layout: FarmLayout | None) -> str:
-    """Format the optimum's gain over one baseline, for the summary table."""
-    if layout is None or layout.metrics.n_crop == 0:
-        return "n/a"
-    gain = 100.0 * (optimal.metrics.n_crop - layout.metrics.n_crop) / layout.metrics.n_crop
-    return f"+{gain:.1f}%"
+def _gain_cell(optimal: FarmLayout, layout: FarmLayout | None) -> str:
+    gain = gain_over(optimal, layout)
+    return "n/a" if gain is None else f"+{gain:.1f}%"
 
 
 def run_all() -> None:
     """Run every terrain and print a summary table: each baseline vs the optimum."""
-    _heading("Running every terrain")
+    heading("Sugarcane on every terrain")
     print()
     print("This takes a few seconds -- large_15x15 alone needs ~12s to prove")
     print("optimality.")
@@ -450,42 +419,36 @@ def run_all() -> None:
             (
                 name,
                 str(optimal.metrics.n_free),
-                _column(by_label["Checkerboard"]),
-                _column(by_label["1x2 stripes"]),
+                _cell(by_label["Checkerboard"]),
+                _cell(by_label["1x2 stripes"]),
+                _cell(by_label["Greedy water"]),
                 optimal_col,
-                _gain(optimal, by_label["Checkerboard"]),
-                _gain(optimal, by_label["1x2 stripes"]),
+                _gain_cell(optimal, by_label["Greedy water"]),
             )
         )
 
-    header = ("Terrain", "Free", "Checkerboard", "1x2 stripes", "Optimal", "vs check", "vs 1x2")
-    widths = (16, 5, 14, 14, 14, 9, 8)
+    print_table(
+        ("Terrain", "Free", "Checkerboard", "1x2 stripes", "Greedy water", "Optimal", "vs greedy"),
+        (14, 4, 13, 13, 13, 13, 10),
+        rows,
+    )
 
-    def format_row(cells: tuple[str, ...]) -> str:
-        """First column left-aligned (it is a name), the numbers right-aligned."""
-        parts = [
-            f"{cell:<{width}}" if i == 0 else f"{cell:>{width}}"
-            # strict: a row that does not match the header is a bug, and a
-            # silently truncated table would hide it.
-            for i, (cell, width) in enumerate(zip(cells, widths, strict=True))
-        ]
-        return "  " + "  ".join(parts)
-
-    print()
-    print(format_row(header))
-    print("  " + "  ".join("-" * w for w in widths))
-    for row in rows:
-        print(format_row(row))
-
-    if any(row[4].endswith("*") for row in rows):
+    if any(row[5].endswith("*") for row in rows):
         print()
         print("  * time limit ran out; the value is a lower bound, not a proven optimum.")
 
     print()
     print("  The checkerboard is safe but wasteful: it gives every cane four water")
     print("  neighbours when one would do, so it spends half the terrain on water.")
-    print("  The 1x2 stripes fix that and land at 2/3. The solver does better still,")
-    print("  and its lead is widest where obstacles break the hand patterns' stripes.")
+    print("  The 1x2 stripes fix that and land at 2/3 -- genuinely good, and what")
+    print("  people build. But a player who follows no pattern and simply digs the")
+    print("  water that pays best beats the stripes on every terrain here.")
+    print()
+    print("  So read 'vs greedy', not 'vs the patterns'. Beating a pattern by 20-30%")
+    print("  sounds impressive and is mostly a fact about patterns. Against someone")
+    print("  actually thinking, the exact optimum is worth a few percent -- real, and")
+    print("  a good deal smaller. It is still worth having, which is more than can be")
+    print("  said for cactus: run demo_cactus.py to see the solver earn nothing at all.")
 
 
 def main() -> None:
@@ -497,6 +460,7 @@ def main() -> None:
         print()
         print("Tip: edit TERRAIN at the top of this file to try another terrain,")
         print("     or set RUN_ALL = True to compare them all at once.")
+        print("     For the opposite lesson, run demo_cactus.py.")
     print()
 
 

@@ -11,15 +11,17 @@ line of the core. Adding the next crop is a new rule file and nothing else.
 ## Quick start
 
 ```bash
-python examples/demo.py
+python examples/demo_sugarcane.py     # hand patterns lose. use the solver.
+python examples/demo_cactus.py        # hand pattern already wins. mostly don't.
 ```
 
-No arguments, nothing to write. It solves a terrain and shows what the optimiser
-bought you over the two patterns people build by hand:
+No arguments, nothing to write. Each solves a terrain and shows what the
+optimiser bought you over the patterns people build by hand — and for cactus,
+the honest answer is often *nothing*, which is the point. Sugarcane first:
 
 ```
 ==================================================================
- Terrain: l_shape  (8x10, 68 free, 12 obstacles)
+ Sugarcane on l_shape  (8x10, 68 free, 12 obstacles)
 ==================================================================
 
 Input  ('.' free, '#' obstacle):
@@ -80,19 +82,61 @@ Edit one line at the top of the file (`TERRAIN = "l_shape"`) to try another, or
 set `RUN_ALL = True` for the summary across all of them:
 
 ```
-  Terrain            Free    Checkerboard     1x2 stripes         Optimal   vs check    vs 1x2
-  ----------------  -----  --------------  --------------  --------------  ---------  --------
-  rectangle_9x9        81      41 (50.6%)      54 (66.7%)      61 (75.3%)     +48.8%    +13.0%
-  l_shape              68      34 (50.0%)      42 (61.8%)      51 (75.0%)     +50.0%    +21.4%
-  with_obstacles       92      46 (50.0%)      52 (56.5%)      68 (73.9%)     +47.8%    +30.8%
-  large_15x15         225     113 (50.2%)     150 (66.7%)     172 (76.4%)     +52.2%    +14.7%
+  Terrain         Free   Checkerboard    1x2 stripes   Greedy water        Optimal   vs greedy
+  --------------  ----  -------------  -------------  -------------  -------------  ----------
+  rectangle_9x9     81     41 (50.6%)     54 (66.7%)     57 (70.4%)     61 (75.3%)       +7.0%
+  l_shape           68     34 (50.0%)     42 (61.8%)     49 (72.1%)     51 (75.0%)       +4.1%
+  with_obstacles    92     46 (50.0%)     52 (56.5%)     64 (69.6%)     68 (73.9%)       +6.2%
+  ragged            26     13 (50.0%)     14 (53.8%)     18 (69.2%)     18 (69.2%)       +0.0%
+  large_15x15      225    113 (50.2%)    150 (66.7%)    164 (72.9%)    172 (76.4%)       +4.9%
 ```
+
+Read the last column, not the pattern columns. Beating the 1×2 stripes by 13–31%
+sounds impressive and is mostly a fact about stripes. **Greedy water** is a player
+following no pattern at all, just digging whichever cell buys the most cane — they
+beat every pattern here, and against them the exact optimum is worth **4–7%**.
+Real, worth having, and a good deal smaller than the headline a template opponent
+would have handed us.
+
+Now run `demo_cactus.py` on the same land, and it says the opposite:
+
+```
+  Terrain            Free    Checkerboard    Greedy sweep         Optimal   vs check   vs greedy
+  ----------------  -----  --------------  --------------  --------------  ---------  ----------
+  rectangle_9x9        81      41 (50.6%)      41 (50.6%)      41 (50.6%)      +0.0%       +0.0%
+  l_shape              68      31 (45.6%)      31 (45.6%)      31 (45.6%)      +0.0%       +0.0%
+  with_obstacles       92      33 (35.9%)      34 (37.0%)      35 (38.0%)      +6.1%       +2.9%
+  ragged               26       7 (26.9%)       8 (30.8%)       8 (30.8%)     +14.3%       +0.0%
+  large_15x15         225     113 (50.2%)     113 (50.2%)     113 (50.2%)      +0.0%       +0.0%
+```
+
+**+0.0%.** For cactus on open ground the checkerboard people already build *is*
+the optimum, and the solver only confirms it. Worse: a player with no pattern at
+all — sweeping the field, planting wherever it is legal — ties the optimum on four
+of the five terrains. The exact solver's best win over that player is **+2.9%, on
+one map**.
+
+So the two crops bracket the answer: for sugarcane the solver is worth a real but
+single-digit margin over someone thinking; for cactus it is worth essentially
+nothing. Saying so is the most useful thing it does. More on that below.
 
 ## What the comparison shows
 
-Both hand patterns are legal layouts, and both are steelmanned — the demo tries
-all 6 stripe variants and both checkerboard colourings and reports the best one.
-They still lose, and *why* they lose is the argument for solving this exactly.
+Every baseline here is a legal layout, steelmanned rather than strawmanned: all 6
+stripe variants and both checkerboard colourings are tried and the best reported,
+and — the part that is easy to get wrong — each one **fills its leftover holes**.
+A pattern that prunes what broke and walks away leaves free production on the
+table that a real player would take; beating *that* proves nothing about the
+solver and everything about the baseline. (For cactus the fill is worth up to a
+cactus per map; for sugarcane it provably never fires, since a cell is only empty
+because it has no water beside it, which is exactly what planting would need.)
+
+The other half of a fair fight is picking a real opponent. A *pattern* is not the
+best a person can do, so each demo also measures against a player who follows no
+pattern at all — and in both cases that player beats every pattern, and shrinks
+the solver's margin to single digits. Those are the numbers to judge this by.
+
+The sugarcane patterns still lose, and *why* they lose is worth understanding.
 
 **The checkerboard is safe and wasteful.** Alternating water and cane can never
 strand a plant: every cane gets four water neighbours. But cane only needs
@@ -107,12 +151,49 @@ to 56.5%, because a `#` sitting on a stripe strands the cane that stripe was
 feeding. The checkerboard, meanwhile, holds 50.0%.
 
 That trade — safe-but-wasteful against efficient-but-brittle — is the thing a
-template cannot escape and a solver never faces. The optimiser holds ~75% on all
-four terrains, and its lead over the stripes is widest exactly where the stripes
-break (`with_obstacles`, +30.8%). It is not using a cleverer pattern; it is using
-no pattern at all.
+template cannot escape and a solver never faces. The optimiser holds ~75% on every
+terrain. It is not using a cleverer pattern; it is using no pattern at all.
 
-See [`examples/README.md`](examples/README.md).
+**But neither does a decent player, and that is the honest measurement.** Dig the
+water that pays best, repeat: that beats the stripes on every terrain (70–73% vs
+56–67%) and lands within 4–7% of proven optimal — dead level with it on `ragged`.
+The solver's real prize for sugarcane is those few percent, not the 30% you get by
+choosing a template as your opponent.
+
+**And then cactus says the opposite, which matters more.** Cactus forbids
+neighbours rather than needing them, so the best layout is a checkerboard — and
+that is already what people build. The solver ties it at +0.0% on every regular
+terrain. It pulls ahead only where obstacles turn irregular (`ragged`, +14.3%),
+because a checkerboard has to commit to one colour of the board *globally* while
+obstacles make that choice wrong *locally*.
+
+**And a player who uses no pattern beats the pattern.** Sweeping the field and
+planting wherever it is legal commits to nothing, so it adapts to walls that a
+checkerboard cannot. That greedy sweep ties the exact optimum on four of five
+terrains; the solver's entire advantage over it is +2.9%, once.
+
+So the honest summary is not "always optimise". It is: **for sugarcane the solver
+buys you a few percent over a thoughtful player; for cactus it buys you nothing.**
+A tool worth trusting is one that will tell you when to leave it in the drawer,
+and the demos say that out loud instead of burying a +0.0% in a table.
+
+Every number above got smaller as the baselines got fairer, and that history is
+worth stating plainly:
+
+- The hand patterns did not fill the holes their pruning left, so they threw away
+  cane and cactus a real player would have planted.
+- The cactus demo had a "sparse grid" opponent scoring +64% for the solver. Fill
+  its holes and it simply *is* the checkerboard. The +64% was fiction.
+- Both demos measured the solver against *patterns*, when a player who follows no
+  pattern does better than any of them. That alone cut sugarcane's headline from
+  13–31% down to 4–7%, and cactus's from +33% to +0%.
+
+None of those were rounding errors; each one was the measurement flattering the
+thing being measured. A comparison is worth exactly as much as the opponent it
+picks.
+
+See [`examples/README.md`](examples/README.md) for why the demos are split per
+crop rather than sharing a `CROP` switch.
 
 ## Install
 
@@ -347,7 +428,9 @@ mcfarm_opt/
 │   └── text.py      # parse / render
 └── ...
 examples/
-└── demo.py          # runnable entrypoint, commented as documentation
+├── _shared.py          # terrains + print plumbing. not worth reading.
+├── demo_sugarcane.py   # runnable, commented as documentation
+└── demo_cactus.py      # ditto, and it argues the opposite case
 ```
 
 `core/variables.py` is the one module not in the original design sketch. It holds
@@ -361,7 +444,7 @@ from importing solvers or vice versa.
 python -m pytest
 ```
 
-230 tests. The interesting ones are in `tests/test_sugarcane.py::TestAgainstBruteForce`:
+329 tests. The interesting ones are in `tests/test_sugarcane.py::TestAgainstBruteForce`:
 they check the CP-SAT model against an **exhaustive enumeration of every possible
 water placement**, written in `tests/conftest.py` and sharing no code with the
 library. That tests the model against the definition of the problem rather than
@@ -377,19 +460,19 @@ rectangle from 1×1 to 6×6 is checked against arithmetic that owes the solver
 nothing. Its brute-force oracle is separate from sugarcane's — same discipline,
 different rule.
 
-`tests/test_demo.py` guards the demo's headline claim. Both baselines it compares
-against are checked to be **legal** layouts, cell by cell: cane without adjacent
-water would flatter the hand pattern, over-eager pruning would flatter optifarm, and
-either way the comparison in this README would be a lie that nothing else would
-catch. It also asserts the optimum never scores below a baseline — a baseline is a
-feasible layout, so it is a lower bound on the optimum by construction, and a
-solver coming in under one would mean the model is wrong.
+`tests/test_demo.py` guards the demos' headline claims. Every baseline they compare
+against is checked to be a **legal** layout under its own crop's rule — using the
+same validators that check the solver's own output. A pattern claiming crop it
+cannot grow would flatter the hand pattern; over-eager pruning would flatter
+optifarm; either way the tables in this README would be a lie that nothing else
+would catch. It also asserts the optimum never scores below a baseline (a baseline
+is feasible, so it is a lower bound by construction), and it pins the cactus
+**+0.0% tie** — that tie is the whole lesson of `demo_cactus.py`, so if it ever
+drifts, either the claim or the model is wrong.
 
 ## Not yet implemented
 
 - Wheat, melons, mushrooms (the interface is ready; the rules are not written)
-- `examples/demo.py` still only runs sugarcane — cactus is usable from the API
-  (`optimize(terrain, crop=Cactus())`) but has no demo of its own yet
 - Heuristic solvers for terrains too large to solve exactly
 - Graphical visualisation
 - Schematic export
