@@ -45,6 +45,7 @@ from mcfarm_opt.crops.base import (
     CropRule,
     ObjectiveTerm,
 )
+from mcfarm_opt.crops.cactus import Cactus
 from mcfarm_opt.crops.sugarcane import Sugarcane
 from mcfarm_opt.io.text import parse_grid, render_grid, render_layout
 from mcfarm_opt.solvers.base import Solver
@@ -54,6 +55,7 @@ __all__ = [
     "AdjacencyCropRule",
     "AdjacencyRequirement",
     "BlockType",
+    "Cactus",
     "Cell",
     "CellVars",
     "CropRule",

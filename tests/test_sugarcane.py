@@ -13,7 +13,7 @@ import pytest
 
 from mcfarm_opt import BlockType, Cell, SolveStatus, Sugarcane, optimize
 
-from .conftest import assert_valid_sugarcane, brute_force_optimum
+from .conftest import assert_valid_sugarcane, brute_force_sugarcane_optimum
 
 
 class TestKnownOptima:
@@ -141,7 +141,7 @@ class TestAgainstBruteForce:
     )
     def test_matches_exhaustive_enumeration(self, terrain):
         layout = optimize(terrain, crop=Sugarcane())
-        assert layout.metrics.n_crop == brute_force_optimum(terrain)
+        assert layout.metrics.n_crop == brute_force_sugarcane_optimum(terrain)
         assert layout.metrics.is_optimal
         assert_valid_sugarcane(layout)
 

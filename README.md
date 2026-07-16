@@ -4,8 +4,9 @@ Compute **provably optimal** Minecraft farm layouts. Give it a terrain and a cro
 it returns the block placement that maximises production, and a proof that nothing
 better exists — via an OR-Tools CP-SAT model.
 
-This first release implements **sugarcane**. The architecture is built so that the
-next crop is a new rule file and nothing else.
+Implements **sugarcane** and **cactus** — rules that pull in opposite directions
+(cane needs water beside it, cactus needs nothing solid beside it) and share every
+line of the core. Adding the next crop is a new rule file and nothing else.
 
 ## Quick start
 
@@ -226,6 +227,56 @@ looks regular, but the counts are not the ones people guess. A 5x5 tops out at
 **18** cane, not the 15 that water-every-other-row gives; the optimum spends 7 cells
 on water in an irregular pattern. Add obstacles and hand-reasoning degrades fast.
 
+## The cactus model
+
+The mirror image, and the reason the abstraction carries its sign as a parameter.
+A cell may hold cactus iff it is free and **no solid block is orthogonally
+adjacent**. Cane is drawn to a feature; cactus is repelled by one. In the model
+that difference is `minimum=1` versus `maximum=0`.
+
+```
+maximise    sum_p x[p, CROP]
+subject to  x[p, CROP] = 1  =>  sum_{q in N(p)} (x[q, CROP] + x[q, OBSTACLE]) = 0
+```
+
+Stated once per cell, and it needs no mirror: if two adjacent cells both held
+cactus, each one's own constraint would already be violated.
+
+**What counts as solid** is the judgement call, and it decides every number. The
+grid is a top-down projection, so the question is what sits at the *cactus's own
+level* in a neighbouring cell:
+
+- **another cactus** — solid, breaks it.
+- **an obstacle** — modelled as solid, so cactus cannot hug it. The terrain
+  format has one `#`, so this reads every obstacle as a wall rather than a pit —
+  the conservative choice, since a layout valid against a wall is also valid
+  against a hole, but not the reverse.
+- **sand** — *not* solid at cactus level. The sand a cactus stands on is one block
+  **underneath** it, inside the same cell of the projection, never a neighbour.
+  This is why `Cactus.support_blocks()` is empty and why real checkerboard cactus
+  farms work at all. Note this is deliberately narrower than `BlockType.is_solid`,
+  which answers "is sand a solid block?" (yes) rather than "is sand solid *where
+  the cactus is*?" (no).
+
+Two consequences worth knowing, both verified:
+
+**Cactus is easy where sugarcane is hard.** This is maximum independent set on a
+grid graph. Grid graphs are bipartite, and MIS on a bipartite graph is polynomial
+— by König's theorem it is `n - maximum matching` — so the LP relaxation is
+integral and CP-SAT closes the proof at the root instead of searching. Sugarcane
+cannot prove an 18×18 in 30 seconds; cactus proves a **40×40 in 0.34s**.
+
+**Obstacles are brutal.** A sugarcane obstacle costs about the cell itself. A
+cactus obstacle also poisons its up-to-four neighbours, since none may touch it.
+On the same 5×5 with six scattered obstacles, sugarcane grows 12 and cactus grows
+**2**; in a one-cell-wide corridor, sugarcane grows 5 and cactus grows **0**,
+because every free cell touches a wall.
+
+On open ground the answer is the checkerboard everyone already builds —
+`ceil(rows*cols/2)`, about 50%, and the solver confirms it rather than discovers
+it. The solver earns its keep on irregular terrain, where *which half of the
+board* stops being a global choice.
+
 ## Extending: adding a crop
 
 A crop implements `CropRule`. Most crops need no CP-SAT at all — subclass
@@ -233,38 +284,43 @@ A crop implements `CropRule`. Most crops need no CP-SAT at all — subclass
 **sign** and the **distance** as parameters, which is what lets one abstraction
 cover rules that pull in opposite directions:
 
+`Cactus` is the whole of it — the shipped rule, in full:
+
 ```python
 class Cactus(AdjacencyCropRule):
-    """Cactus: breaks if any solid block is orthogonally adjacent."""
+    """Cactus, which grows on any cell no solid block touches."""
 
     @property
     def name(self) -> str:
         return "cactus"
 
     def support_blocks(self) -> frozenset[BlockType]:
-        return frozenset({BlockType.SAND})
+        return frozenset()          # the sand is *under* the cactus, not beside it
 
     def requirements(self) -> Sequence[AdjacencyRequirement]:
         return (
             AdjacencyRequirement(                       # NEGATIVE adjacency
-                blocks=frozenset({BlockType.SAND, BlockType.CROP, BlockType.OBSTACLE}),
+                blocks=SOLID_AT_CACTUS_LEVEL,           # {CROP, OBSTACLE}
                 maximum=0,
             ),
         )
 ```
 
+That is the entire diff for a crop that pulls in the opposite direction from
+sugarcane. No core file was touched to add it.
+
 The three shapes the interface is designed to cover:
 
-| Crop      | Rule                                   | Requirement                                                      |
-|-----------|----------------------------------------|------------------------------------------------------------------|
-| Sugarcane | needs water orthogonally adjacent      | `AdjacencyRequirement({WATER}, minimum=1)`                        |
-| Cactus    | no solid block orthogonally adjacent   | `AdjacencyRequirement({SAND, CROP, OBSTACLE}, maximum=0)`          |
-| Wheat     | water within radius 4, incl. diagonals | `AdjacencyRequirement({WATER}, DIAGONAL, radius=4, minimum=1)`     |
+| Crop      | Rule                                   | Requirement                                                   | Status |
+|-----------|----------------------------------------|---------------------------------------------------------------|--------|
+| Sugarcane | needs water orthogonally adjacent      | `AdjacencyRequirement({WATER}, minimum=1)`                     | shipped |
+| Cactus    | no solid block orthogonally adjacent   | `AdjacencyRequirement({CROP, OBSTACLE}, maximum=0)`            | shipped |
+| Wheat     | water within radius 4, incl. diagonals | `AdjacencyRequirement({WATER}, DIAGONAL, radius=4, minimum=1)` | not yet |
 
 Nothing about water or adjacency is hardcoded in the core: the grid only knows
 about distance metrics, and the variables only know about "exactly one block per
-cell". Both cactus and wheat above are exercised in `tests/test_extensibility.py`
-against the shipped core, unmodified.
+cell". Sugarcane and cactus prove that in shipped code; wheat's radius rule is
+exercised in `tests/test_extensibility.py` against the same core, unmodified.
 
 For a rule no declarative scheme anticipates, implement `CropRule` directly and
 write the constraints by hand — you get the model, the variables and the grid.
@@ -282,7 +338,8 @@ mcfarm_opt/
 │   └── result.py    #   FarmLayout + FarmMetrics
 ├── crops/           # what makes a cell plantable. one module per crop.
 │   ├── base.py      #   CropRule protocol + AdjacencyCropRule helper
-│   └── sugarcane.py #   the only crop so far
+│   ├── sugarcane.py #   positive adjacency: needs water beside it
+│   └── cactus.py    #   negative adjacency: needs nothing solid beside it
 ├── solvers/         # how the model is searched
 │   ├── base.py      #   Solver protocol
 │   └── ilp.py       #   exact, via CP-SAT
@@ -304,7 +361,7 @@ from importing solvers or vice versa.
 python -m pytest
 ```
 
-155 tests. The interesting ones are in `tests/test_sugarcane.py::TestAgainstBruteForce`:
+230 tests. The interesting ones are in `tests/test_sugarcane.py::TestAgainstBruteForce`:
 they check the CP-SAT model against an **exhaustive enumeration of every possible
 water placement**, written in `tests/conftest.py` and sharing no code with the
 library. That tests the model against the definition of the problem rather than
@@ -313,6 +370,12 @@ against itself.
 Every hardcoded optimum in the suite (5x5 → 18, obstacle → 17, L-shape → 15) was
 verified the same way — by brute force over all 2^25 water placements, offline,
 before being written down.
+
+`tests/test_cactus.py` gets the same treatment, plus a bonus: cactus has a **closed
+form**. On open ground the answer is provably `ceil(rows*cols/2)`, so every open
+rectangle from 1×1 to 6×6 is checked against arithmetic that owes the solver
+nothing. Its brute-force oracle is separate from sugarcane's — same discipline,
+different rule.
 
 `tests/test_demo.py` guards the demo's headline claim. Both baselines it compares
 against are checked to be **legal** layouts, cell by cell: cane without adjacent
@@ -324,7 +387,9 @@ solver coming in under one would mean the model is wrong.
 
 ## Not yet implemented
 
-- Other crops (the interface is ready; the rules are not written)
+- Wheat, melons, mushrooms (the interface is ready; the rules are not written)
+- `examples/demo.py` still only runs sugarcane — cactus is usable from the API
+  (`optimize(terrain, crop=Cactus())`) but has no demo of its own yet
 - Heuristic solvers for terrains too large to solve exactly
 - Graphical visualisation
 - Schematic export

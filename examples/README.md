@@ -53,11 +53,28 @@ free.
 
 ## Coming later
 
-- **`cactus.py`** — once a `CactusRule` exists. It is the interesting example
-  from a modelling standpoint: cane wants water nearby (positive adjacency),
-  cactus wants the opposite (negative adjacency), and both fall out of the same
-  `AdjacencyRequirement` with only the sign changed.
+- **`cactus.py`** — the `Cactus` rule now ships, so this one is just a demo away.
+  It is the interesting example from a modelling standpoint: cane wants water
+  nearby (positive adjacency), cactus wants the opposite (negative adjacency),
+  and both fall out of the same `AdjacencyRequirement` with only the sign changed.
+  Usable from the API today:
+
+  ```python
+  from mcfarm_opt import Cactus, optimize
+  print(optimize("\n".join(["....."] * 5), crop=Cactus()).render())
+  ```
+
+  ```
+  C.C.C
+  .C.C.
+  C.C.C
+  .C.C.
+  C.C.C
+  ```
+
 - **`benchmark.py`** — how proving time scales with terrain size, and where the
   exact solver should give way to a heuristic. The start of that curve is already
-  visible: 9x9 solves in 0.07s, 12x12 in 0.9s, 15x15 in 12s, and an 18x18 does
-  not close the proof within 30s.
+  visible for sugarcane: 9x9 solves in 0.07s, 12x12 in 0.9s, 15x15 in 12s, and an
+  18x18 does not close the proof within 30s. Cactus is the control group — it is
+  bipartite maximum independent set, so a 40x40 proves in 0.34s and the curve is
+  flat.

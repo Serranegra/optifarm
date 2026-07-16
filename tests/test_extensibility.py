@@ -2,11 +2,16 @@
 
 The whole point of the architecture is that a new crop is a new rule and
 nothing else -- no edits to the grid, the variables or the solver. These tests
-define throwaway crops covering the three shapes named in the design, and
-assert the existing machinery solves them.
+define throwaway crops covering the shapes named in the design, and assert the
+existing machinery solves them.
 
 The crops here are test fixtures, not shipped features: they exercise the
-interface, they are not the real cactus/wheat/mushroom models.
+interface, they are not the real wheat/mushroom models. Negative adjacency has
+graduated out of this file -- :class:`~mcfarm_opt.crops.cactus.Cactus` ships and
+is tested in ``test_cactus.py``, so the fixture that used to stand in for it is
+gone rather than left here modelling the rule a second, contradictory way.
+``FakeCombo`` below still exercises a negative requirement from a user-defined
+crop, which is what this file is here to prove.
 """
 
 from __future__ import annotations
@@ -20,7 +25,6 @@ from mcfarm_opt import (
     AdjacencyCropRule,
     AdjacencyRequirement,
     BlockType,
-    Cell,
     CellVars,
     CropRule,
     Grid,
@@ -28,27 +32,6 @@ from mcfarm_opt import (
     ObjectiveTerm,
     optimize,
 )
-
-
-class FakeCactus(AdjacencyCropRule):
-    """NEGATIVE adjacency: cactus breaks if any solid block orthogonally touches it."""
-
-    @property
-    def name(self) -> str:
-        return "fake-cactus"
-
-    def support_blocks(self) -> frozenset[BlockType]:
-        return frozenset({BlockType.SAND})
-
-    def requirements(self) -> Sequence[AdjacencyRequirement]:
-        return (
-            AdjacencyRequirement(
-                blocks=frozenset({BlockType.SAND, BlockType.CROP, BlockType.OBSTACLE}),
-                neighborhood=Neighborhood.ORTHOGONAL,
-                radius=1,
-                maximum=0,
-            ),
-        )
 
 
 class FakeWheat(AdjacencyCropRule):
@@ -116,33 +99,6 @@ class HandWrittenCrop:
         return [ObjectiveTerm(variables.var(cell, BlockType.CROP), 1) for cell in grid.free_cells()]
 
 
-class TestNegativeAdjacency:
-    def test_cactus_never_touches_a_solid(self):
-        layout = optimize("\n".join(["....."] * 5), crop=FakeCactus())
-        for cell in layout.grid.cells():
-            if layout.block_at(cell) is BlockType.CROP:
-                for neighbor in layout.grid.neighbors(cell):
-                    assert not layout.block_at(neighbor).is_solid, (
-                        f"cactus at {cell} touches a solid at {neighbor}"
-                    )
-
-    def test_cactus_on_open_ground_is_a_checkerboard(self):
-        """No two cacti orthogonally adjacent on a 5x5 means the 13-cell colour."""
-        layout = optimize("\n".join(["....."] * 5), crop=FakeCactus())
-        assert layout.metrics.n_crop == 13
-        assert layout.metrics.is_optimal
-
-    def test_cactus_avoids_obstacles_too(self):
-        """An obstacle is a solid, so the cells around it must stay bare.
-
-        This is the case that would silently break if obstacles were left out
-        of the neighbourhood count rather than fixed to OBSTACLE.
-        """
-        layout = optimize(".....\n.....\n..#..\n.....\n.....", crop=FakeCactus())
-        for neighbor in layout.grid.neighbors(Cell(2, 2)):
-            assert layout.block_at(neighbor) is not BlockType.CROP
-
-
 class TestRadiusAdjacency:
     def test_one_water_hydrates_the_whole_9x9(self):
         """A 9x9 with water at the centre: 80 wheat off a single water block."""
@@ -183,10 +139,12 @@ class TestRawInterface:
         assert layout.metrics.is_optimal
 
     def test_protocol_is_satisfied_structurally(self):
-        from mcfarm_opt import Sugarcane
+        """Shipped crops and user-defined ones satisfy the same protocol."""
+        from mcfarm_opt import Cactus, Sugarcane
 
         assert isinstance(Sugarcane(), CropRule)
-        assert isinstance(FakeCactus(), CropRule)
+        assert isinstance(Cactus(), CropRule)
+        assert isinstance(FakeWheat(), CropRule)
         assert isinstance(HandWrittenCrop(), CropRule)
 
 
