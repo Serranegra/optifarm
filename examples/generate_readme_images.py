@@ -2,9 +2,10 @@
 
     python examples/generate_readme_images.py
 
-Writes twenty-four files to ``assets/results/`` -- an SVG and a PNG for each of
-the four sugarcane layouts, four more pairs for cactus and four for wheat. Re-run
-it after anything
+Writes eighteen files to ``assets/results/``, in two groups. Six are the
+open-ground pattern comparisons -- an SVG and a PNG of the hand pattern and of the
+optimum, one field per crop. Twelve are the obstacle showcase -- sugarcane and
+cactus, optimum only, on three terrains a real farm has. Re-run it after anything
 that could move the numbers (a change to the model, the baselines, or the
 terrains) and commit whatever moves; the README quotes these figures in prose, so
 a silent drift there is a lie in the README.
@@ -12,22 +13,23 @@ a silent drift there is a lie in the README.
 Why the images are generated and not drawn
 ------------------------------------------
 
-Every layout here comes out of the actual solver and the actual baseline its
-demo measures against -- ``baseline_stripes_1x2``, ``baseline_checkerboard`` and
-``baseline_lattice``, imported, not reimplemented. Nothing is posed. If the 1x2 pattern in these
-pictures looks worse than the optimum, that is because it *is* worse by exactly
-the margin printed beside it, and running this file is how you check.
+Every layout here comes out of the actual solver and, where a pattern is drawn,
+the actual baseline its demo measures against -- ``baseline_stripes_1x2``,
+``baseline_checkerboard`` and ``baseline_lattice``, imported, not reimplemented.
+Nothing is posed. If a hand pattern in these pictures looks worse than the
+optimum, that is because it *is* worse by exactly the margin printed beside it,
+and running this file is how you check.
 
 It cuts the other way too, and that is the more valuable half: on open ground the
-cactus pair and the wheat pair each come out of those same functions and render
-the *same picture twice*, because there the hand pattern already is the optimum.
-A README that drew its own illustrations could not have been surprised by that.
+cactus pair renders the *same picture twice*, because there the checkerboard
+already is the optimum. A README that drew its own illustrations could not have
+been surprised by that.
 
 PNGs are rendered with headless Chrome. That is not a dependency the project
 declares -- it is a browser that happens to be installed, used because no
 SVG->PNG tool (ImageMagick, Inkscape, rsvg-convert, cairosvg) was present and
-none of them is worth adding for a dozen pictures. The SVGs are the real output and
-need nothing; the PNGs exist only for places that will not render SVG.
+none of them is worth adding for a dozen-odd pictures. The SVGs are the real
+output and need nothing; the PNGs exist only for places that will not render SVG.
 """
 
 from __future__ import annotations
@@ -56,15 +58,10 @@ from mcfarm_opt import (
     render_layout_svg,
 )
 from mcfarm_opt.crops.base import CropRule
-from mcfarm_opt.io.svg import CACTUS_PALETTE, WHEAT_PALETTE
+from mcfarm_opt.io.svg import CACTUS_PALETTE, PALETTE, WHEAT_PALETTE
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT_DIR = ROOT / "assets" / "results"
-
-TERRAIN_NAMES = ("with_obstacles", "rectangle_9x9")
-"""The two the README compares. Named as they are in _shared.py -- the task that
-asked for this called them "com_obstaculos" and "retangulo_9x9", from back when
-the demo was one Portuguese file."""
 
 PNG_LONG_SIDE = 512
 """Longest side of the exported PNGs, in pixels. The SVGs are resolution-free;
@@ -158,104 +155,79 @@ def write_pair(browser: str | None, name: str, svg: str) -> None:
         print(f"  wrote {png_path.relative_to(ROOT)}")
 
 
-RAGGED_14x10 = """\
-...#....#..#..
-.....#........
-.......#.....#
-..........#...
-.......#......
-.#...........#
-......#.#....#
-.........#.#..
-......#....#.#
-.......#......"""
-"""A rocky 14x10, drawn to answer a question the small terrains cannot.
+# ---------------------------------------------------------------------------
+# The two halves of the Results section
+# ---------------------------------------------------------------------------
+# There are two distinct claims to illustrate, and they need different pictures.
+#
+# On *open, symmetric* ground a hand pattern is a fair opponent -- 1x2 stripes, a
+# checkerboard and a 9-lattice are exactly what a player stamps across an empty
+# field, and putting the optimum beside one is an honest comparison. That is the
+# first half, one open field per crop.
+#
+# The moment the ground stops being open there is no pattern to stamp: you cannot
+# run stripes through a house or a checkerboard around a pond. So on obstacle
+# terrain a pattern-vs-solver picture is the wrong comparison twice over -- it is
+# unfair to the pattern (it was never built for that ground) and it flatters the
+# solver (beating a crippled template proves nothing). The honest thing to show
+# there is just the solver's answer, on obstacles a real farm actually has. That
+# is the second half, and it draws no hand pattern at all.
 
-Why this is not in ``_shared.TERRAINS``
---------------------------------------
 
-It illustrates the README; no demo solves it. Putting it in ``TERRAINS`` would
-add a row to all three demos' summary tables, which is a real change to what they
-claim and not one this picture needs. If it ever earns a place in the demos it
-should move there, and the tables should move with it.
+def _house(size: int, wall: int) -> str:
+    """An open ``size`` x ``size`` field with a solid ``wall`` x ``wall`` house centred in it."""
+    lo = (size - wall) // 2
+    return "\n".join(
+        "".join("#" if lo <= r < lo + wall and lo <= c < lo + wall else "." for c in range(size))
+        for r in range(size)
+    )
 
-Where the rocks came from, which is the part that matters
---------------------------------------------------------
 
-Not from taste. A hand-placed rock field is a hand-tuned result: nudge the rocks
-until the solver wins big, publish the number, and the picture is an argument for
-whatever it was built to argue. So the rule was fixed *before* the answer was
-seen: 19 rocks -- 13.3% of 140 cells, the same fraction ``ragged`` has -- scattered
-by ``random.Random(seed).sample``.
+def _disc(size: int, radius: float, *, obstacle_inside: bool) -> str:
+    """A ``size`` x ``size`` field split by a disc of ``radius`` at its centre.
 
-One draw would not have been enough either, and this is the trap worth naming.
-The first draw taken (seed 0) scored +7.9%, and it looked like a fine result until
-sixty draws showed it sitting in the top 15% of them. The spread runs from +0.0%
-to +18.9%: publishing any single draw is publishing luck. So this is seed 10, and
-it was chosen by rule -- the draw whose margin is the *median* of sixty, with ties
-broken by the lowest seed. It is here to be typical, not to be flattering.
+    ``obstacle_inside`` chooses which side is rock: True digs a round pond out of
+    open ground; False makes the plantable field itself a circle, walling off
+    everything outside it.
+    """
+    centre = (size - 1) / 2
+    inside, outside = ("#", ".") if obstacle_inside else (".", "#")
+    return "\n".join(
+        "".join(
+            inside if (r - centre) ** 2 + (c - centre) ** 2 <= radius**2 else outside
+            for c in range(size)
+        )
+        for r in range(size)
+    )
 
-What sixty draws say
---------------------
 
-That the field size, not the solver, was doing the talking. Cactus gains, over the
-hand checkerboard, at 13.3% rock:
+HOUSE = _house(15, 5)
+"""15x15 open ground with a 5x5 building planted in the middle -- a farm with a
+house in it, which most farms have."""
 
-    30 cells (`ragged`)  median 0 cacti
-    140 cells (this)     median 1 cactus,  +2.6%
-    280 cells            median 4 cacti
-    560 cells            median 10 cacti
+POND = _disc(15, 3.5, obstacle_inside=True)
+"""15x15 open ground with a round pond dug out of the centre."""
 
-The *absolute* win grows with area, at roughly a cactus per 60 cells. The
-*percentage* does not -- it sits near +2.6% and stays there, because the crop
-count grows with the field just as fast. So ``ragged``'s +14.3% was never the
-solver doing well; it was a 30-cell field, where one cactus is 14% of the answer.
-On 25 of those 60 draws the solver won nothing at all.
+ROUND_FIELD = _disc(15, 7, obstacle_inside=False)
+"""A circular plot: a disc of soil in a 15x15 box, walled off outside it. The
+boundary no rectangular pattern can follow."""
 
-More rock does not rescue it either: the margin peaks near this density and falls
-off both sides, to a median 0 at 5% (too few rocks to make the parity choice hurt)
-and 0 again at 40% (so much rock that both layouts are starved alike).
-"""
-
-CACTUS_TERRAINS: tuple[tuple[str, str], ...] = (
-    ("rectangle_9x9", TERRAINS["rectangle_9x9"]),
-    ("ragged_14x10", RAGGED_14x10),
+SHOWCASE_TERRAINS: tuple[tuple[str, str], ...] = (
+    ("house", HOUSE),
+    ("pond", POND),
+    ("round_field", ROUND_FIELD),
 )
-"""The two the README draws: the tie, and the exception to it.
+"""The meaningful obstacles the README shows the optimiser solving.
 
-``rectangle_9x9`` is the case the cactus demo is *about* -- open ground, where the
-checkerboard is already the optimum and the solver returns the same picture.
-``ragged_14x10`` is where it does not, because obstacles make the checkerboard's
-global choice of colour wrong locally. One of each is the honest pair; showing
-only the rocky one would advertise the exception as the rule.
-"""
+Deliberately not random scatters. A random rockfield is the wrong thing to put a
+pattern against (unfair) and the wrong thing to show the solver on (the rocks look
+arbitrary). A house, a pond and a circular plot are obstacles a real farm has, and
+they are where fitting the crop to the terrain -- with no template to fall back on
+-- is the whole job. No hand pattern is drawn beside them, because none applies;
+the comparison the pictures invite is between the two crops on identical ground.
 
-
-WHEAT_TERRAINS: tuple[tuple[str, str], ...] = (
-    ("with_obstacles", WHEAT_DEMO_TERRAINS["with_obstacles"]),
-    ("rubble", WHEAT_DEMO_TERRAINS["rubble"]),
-)
-"""The same pair of cases for wheat: the tie, and the exception to it.
-
-``with_obstacles`` is the tie, and it is picked over the terrains that tie more
-photogenically. ``rectangle_9x9`` would be the obvious choice and is worthless as
-an illustration: one source hydrates the whole 9x9 and exactly one cell reaches
-every other, so there is a single legal answer and the two *cannot* disagree. It
-does not show a hand pattern matching a solver, it shows a problem with one move
-in it. ``two_fields`` looks better and is the same trick four times over -- its
-wall cross cuts the field into four 9x9 quadrants, each with that same forced
-answer.
-
-The 11x11 is a real tie: 9 rocks, four sources to place, and enough freedom that
-the lattice and the solver arrive at *visibly different* layouts worth exactly the
-same 108. That is what a tie looks like in a covering problem, and it is also the
-field the sugarcane pictures above use -- same land, two rules, 75.0% against
-96.4%.
-
-``rubble`` is the only terrain in the wheat demo where the solver wins anything,
-because 35% obstacles leave no spacing for a lattice to follow. It was built to be
-hostile to the pattern, and the README says so rather than passing it off as
-typical ground.
+Like ``RAGGED`` before them these live here, not in ``_shared.TERRAINS``, because
+they illustrate the README and no demo solves them.
 """
 
 
@@ -321,8 +293,59 @@ def write_comparisons(
     return rows
 
 
+def write_showcase(
+    browser: str | None,
+    terrains: tuple[tuple[str, str], ...],
+) -> list[tuple[str, str, int, float, int]]:
+    """Draw each crop's proven optimum on obstacle terrain -- and nothing else.
+
+    No hand pattern, on purpose: these are the terrains where a pattern does not
+    apply, so there is nothing legitimate to put beside the optimum. Both shipped
+    crops are drawn on identical ground instead, because *that* is the comparison
+    worth making here -- sugarcane threading water around the house, cactus holding
+    a one-cell moat from it, on the same field.
+
+    Returns:
+        One ``(terrain, crop, n_crop, efficiency, n_free)`` row per crop per
+        terrain, for the table :func:`main` prints at the end.
+    """
+    rows: list[tuple[str, str, int, float, int]] = []
+
+    for name, terrain in terrains:
+        for crop, palette in ((Sugarcane(), PALETTE), (Cactus(), CACTUS_PALETTE)):
+            optimal = optimize(terrain, crop=crop, solver="ilp")
+            svg = render_layout_svg(optimal, palette=palette)
+            write_pair(browser, f"{crop.name}_{name}_optimal", svg)
+            rows.append(
+                (
+                    name,
+                    crop.name,
+                    optimal.metrics.n_crop,
+                    optimal.metrics.efficiency,
+                    optimal.metrics.n_free,
+                )
+            )
+        print()
+
+    return rows
+
+
+def _print_comparison_table(title: str, hand_col: str, rows) -> None:
+    """One 'Numbers the README must quote' block for a pattern-vs-optimum run."""
+    print(title)
+    print(f"  {'terrain':16} {hand_col:>14} {'optimal':>12} {'gain':>8}")
+    print(f"  {'-' * 16} {'-' * 14} {'-' * 12} {'-' * 8}")
+    for name, h_n, h_eff, o_n, o_eff in rows:
+        gain = 100.0 * (o_n - h_n) / h_n
+        print(
+            f"  {name:16} {f'{h_n} ({h_eff:.1f}%)':>14} "
+            f"{f'{o_n} ({o_eff:.1f}%)':>12} {f'+{gain:.1f}%':>8}"
+        )
+    print()
+
+
 def main() -> None:
-    """Solve both terrains, render both strategies for each, write the files."""
+    """Draw the open-ground pattern comparisons, then the obstacle showcase."""
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
     browser = find_browser()
@@ -334,40 +357,23 @@ def main() -> None:
         print(f"Rasterising PNGs with: {browser}")
     print()
 
-    rows: list[tuple[str, int, float, int, float, float]] = []
-
-    for name in TERRAIN_NAMES:
-        terrain = TERRAINS[name]
-        grid = parse_grid(terrain)
-
-        optimal = optimize(terrain, crop=Sugarcane(), solver="ilp")
-        manual = baseline_stripes_1x2(grid)
-        if manual is None:  # pragma: no cover - not true of these two terrains
-            raise RuntimeError(f"the 1x2 pattern does not apply to {name}")
-
-        for label, layout in (("1x2", manual), ("optimal", optimal)):
-            write_pair(browser, f"{name}_{label}", render_layout_svg(layout))
-
-        gain = 100.0 * (optimal.metrics.n_crop - manual.metrics.n_crop) / manual.metrics.n_crop
-        rows.append(
-            (
-                name,
-                manual.metrics.n_crop,
-                manual.metrics.efficiency,
-                optimal.metrics.n_crop,
-                optimal.metrics.efficiency,
-                gain,
-            )
-        )
-        print()
-
+    # --- First half: on open ground, the popular pattern against the optimum.
+    # One field per crop; wheat needs a 15x15 because its reach swallows a 9x9.
+    sugar_rows = write_comparisons(
+        browser,
+        crop=Sugarcane(),
+        palette=PALETTE,
+        hand=baseline_stripes_1x2,
+        hand_label="1x2",
+        terrains=(("rectangle_9x9", TERRAINS["rectangle_9x9"]),),
+    )
     cactus_rows = write_comparisons(
         browser,
         crop=Cactus(),
         palette=CACTUS_PALETTE,
         hand=baseline_checkerboard,
         hand_label="checkerboard",
-        terrains=CACTUS_TERRAINS,
+        terrains=(("rectangle_9x9", TERRAINS["rectangle_9x9"]),),
     )
     wheat_rows = write_comparisons(
         browser,
@@ -375,45 +381,32 @@ def main() -> None:
         palette=WHEAT_PALETTE,
         hand=baseline_lattice,
         hand_label="lattice",
-        terrains=WHEAT_TERRAINS,
+        terrains=(("large_15x15", WHEAT_DEMO_TERRAINS["large_15x15"]),),
     )
 
-    print("Numbers the README must quote, sugarcane (vs the 1x2 stripes):")
-    print(f"  {'terrain':16} {'1x2':>12} {'optimal':>12} {'gain':>8}")
-    print(f"  {'-' * 16} {'-' * 12} {'-' * 12} {'-' * 8}")
-    for name, m_n, m_eff, o_n, o_eff, gain in rows:
-        print(
-            f"  {name:16} {f'{m_n} ({m_eff:.1f}%)':>12} "
-            f"{f'{o_n} ({o_eff:.1f}%)':>12} {f'+{gain:.1f}%':>8}"
-        )
+    # --- Second half: the solver alone, on obstacles a real farm has.
+    showcase_rows = write_showcase(browser, SHOWCASE_TERRAINS)
+
+    _print_comparison_table(
+        "Numbers the README must quote, sugarcane (vs the 1x2 stripes):", "1x2", sugar_rows
+    )
+    _print_comparison_table(
+        "Numbers the README must quote, cactus (vs the checkerboard):", "checkerboard", cactus_rows
+    )
+    _print_comparison_table(
+        "Numbers the README must quote, wheat (vs the 9-lattice):", "9-lattice", wheat_rows
+    )
+
+    print("Numbers the README must quote, obstacle showcase (solver only):")
+    print(f"  {'terrain':14} {'crop':10} {'crop':>8} {'efficiency':>12} {'free':>6}")
+    print(f"  {'-' * 14} {'-' * 10} {'-' * 8} {'-' * 12} {'-' * 6}")
+    for name, crop, n_crop, eff, n_free in showcase_rows:
+        print(f"  {name:14} {crop:10} {n_crop:>8} {f'{eff:.1f}%':>12} {n_free:>6}")
 
     print()
-    print("Numbers the README must quote, cactus (vs the checkerboard):")
-    print(f"  {'terrain':16} {'checkerboard':>14} {'optimal':>12} {'gain':>8}")
-    print(f"  {'-' * 16} {'-' * 14} {'-' * 12} {'-' * 8}")
-    for name, h_n, h_eff, o_n, o_eff in cactus_rows:
-        gain = 100.0 * (o_n - h_n) / h_n
-        print(
-            f"  {name:16} {f'{h_n} ({h_eff:.1f}%)':>14} "
-            f"{f'{o_n} ({o_eff:.1f}%)':>12} {f'+{gain:.1f}%':>8}"
-        )
-
-    print()
-    print("Numbers the README must quote, wheat (vs the 9-lattice):")
-    print(f"  {'terrain':16} {'9-lattice':>14} {'optimal':>12} {'gain':>8}")
-    print(f"  {'-' * 16} {'-' * 14} {'-' * 12} {'-' * 8}")
-    for name, h_n, h_eff, o_n, o_eff in wheat_rows:
-        gain = 100.0 * (o_n - h_n) / h_n
-        print(
-            f"  {name:16} {f'{h_n} ({h_eff:.1f}%)':>14} "
-            f"{f'{o_n} ({o_eff:.1f}%)':>12} {f'+{gain:.1f}%':>8}"
-        )
-
-    print()
-    print("Reminder: the 1x2 pattern is not the strongest thing a person does.")
-    print("Run demo_sugarcane.py with RUN_ALL=True for the honest comparison")
-    print("against a player who digs the water that pays best -- there the")
-    print("solver's margin is single digits, not thirty percent.")
+    print("Reminder: the pattern is not the strongest thing a person does, and on")
+    print("open ground a thinking player comes within single digits of the optimum.")
+    print("Run each demo with RUN_ALL=True for that honest comparison.")
 
 
 if __name__ == "__main__":

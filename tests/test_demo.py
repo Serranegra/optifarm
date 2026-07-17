@@ -434,38 +434,79 @@ class TestCactusBaselines:
         assert len(drawn) > 81, "guards the assert below from passing on an empty picture"
         assert drawn == rects(optimal)
 
-    def test_the_readme_s_rocky_14x10_is_worth_one_cactus(self):
-        """The README's cactus comparison, pinned to the picture it shows.
+    def test_the_showcase_terrains_are_the_shapes_the_readme_claims(self):
+        """House, pond, round field -- asserted, not taken on faith.
 
-        39 against 40 on 121 free cells: +2.6%, one plant. The point of the pair
-        is that scaling `ragged` up from 30 cells collapses its +14.3% to this,
-        so if either number moves the paragraph beside the images is wrong.
-
-        The terrain lives in the image generator rather than in TERRAINS -- it
-        illustrates the README, and no demo solves it. See the provenance note
-        on `RAGGED_14x10`: the rocks are a seeded scatter at ragged's own
-        density, and the draw is the median of sixty, chosen by rule.
+        The README calls one a 5x5 house, one a round pond, one a circular plot,
+        and the prose leans on each shape (the house's moat, the circle's rim). A
+        drifting terrain generator could turn the house into a rectangle or the
+        disc into an oval and the captions would quietly go wrong. Centred
+        obstacles make the map its own mirror both ways, which is cheap to check
+        and catches exactly that drift.
         """
-        terrain = images.RAGGED_14x10
-        grid = parse_grid(terrain)
-        assert grid.shape == (10, 14)
-        assert len(list(grid.obstacles())) == 19
+        for name, terrain, n_free, n_obstacle in (
+            ("house", images.HOUSE, 200, 25),
+            ("pond", images.POND, 188, 37),
+            ("round_field", images.ROUND_FIELD, 149, 76),
+        ):
+            grid = parse_grid(terrain)
+            assert grid.shape == (15, 15), name
+            assert len(list(grid.free_cells())) == n_free, name
+            assert len(list(grid.obstacles())) == n_obstacle, name
+            rows = terrain.splitlines()
+            assert rows == [r[::-1] for r in rows], f"{name} is not left-right symmetric"
+            assert rows == rows[::-1], f"{name} is not top-bottom symmetric"
 
-        hand = cactus_demo.baseline_checkerboard(grid)
-        optimal = solve(terrain, Cactus())
-        assert hand.metrics.n_crop == 39
-        assert optimal.metrics.n_crop == 40
+    def test_the_showcase_layouts_are_legal_and_hit_the_readme_counts(self):
+        """Both crops, all three terrains: valid farms at the numbers the captions quote.
 
-    def test_the_rocky_14x10_baselines_are_legal(self):
-        """The terrain is new, so it gets the same scrutiny the shipped ones get.
-
-        A hand pattern claiming cactus it cannot grow would flatter the pattern;
-        an optimum that broke the rule would flatter optifarm. The README prints
-        both layouts as pictures, so both had better be farms.
+        No pattern is compared against in the showcase, so the only thing to pin
+        is the solver's own output -- that it is a legal layout, and that it scores
+        what the README prints beside it. If a count drifts, a caption is wrong.
         """
-        grid = parse_grid(images.RAGGED_14x10)
-        assert_valid_cactus(cactus_demo.baseline_checkerboard(grid))
-        assert_valid_cactus(solve(images.RAGGED_14x10, Cactus()))
+        counts = {
+            ("house", "sugarcane"): 152,
+            ("house", "cactus"): 92,
+            ("pond", "sugarcane"): 142,
+            ("pond", "cactus"): 88,
+            ("round_field", "sugarcane"): 112,
+            ("round_field", "cactus"): 61,
+        }
+        validate = {"sugarcane": assert_valid_sugarcane, "cactus": assert_valid_cactus}
+        for name, terrain in images.SHOWCASE_TERRAINS:
+            for crop in (Sugarcane(), Cactus()):
+                layout = solve(terrain, crop)
+                validate[crop.name](layout)
+                assert layout.metrics.n_crop == counts[(name, crop.name)], (name, crop.name)
+
+    def test_the_house_forces_a_cactus_moat(self):
+        """The claim under the house pictures, made executable.
+
+        Sugarcane may sit against the wall (it needs a water neighbour, and the
+        wall is simply not one). Cactus may not: a wall breaks it like another
+        cactus would, so every free cell touching the house is bare in the
+        optimum. That empty ring is the moat the README points at, and it is why
+        cactus scores far below cane on identical ground.
+        """
+        grid = parse_grid(images.HOUSE)
+        wall_neighbours = {
+            n
+            for cell in grid.cells()
+            if grid.is_obstacle(cell)
+            for n in grid.neighbors(cell)
+            if grid.is_free(n)
+        }
+        assert wall_neighbours, "the house should have free cells around it"
+
+        cactus = solve(images.HOUSE, Cactus())
+        assert all(cactus.block_at(cell) is not BlockType.CROP for cell in wall_neighbours), (
+            "a cactus is touching the house -- the moat is the whole point"
+        )
+
+        cane = solve(images.HOUSE, Sugarcane())
+        assert any(cane.block_at(cell) is BlockType.CROP for cell in wall_neighbours), (
+            "cane should be able to sit against the wall; if none does, the contrast is lost"
+        )
 
     def test_the_solvers_best_win_over_a_greedy_player_is_tiny(self):
         """with_obstacles is the only terrain where the solver beats greedy at all.
@@ -564,25 +605,26 @@ class TestWheatBaselines:
         assert wheat_demo.baseline_greedy(grid).metrics.n_crop == optimal.metrics.n_crop
 
     def test_the_readme_s_wheat_tie_is_two_different_layouts_scoring_the_same(self):
-        """The README's wheat tie, pinned -- including the part that makes it worth showing.
+        """The README's open-ground wheat tie, pinned -- both halves of it.
 
         The obvious terrain for this pair would be `rectangle_9x9`, and it is
         worthless: one source hydrates the whole 9x9 and exactly one cell reaches
         every other, so there is a single legal answer and the two *cannot*
-        disagree. `two_fields` is that same forced answer four times, one per
+        disagree (`test_the_wheat_terrains_the_readme_rejected_are_the_degenerate_ones`
+        pins that). `two_fields` is that same forced answer four times, one per
         quadrant of its wall cross.
 
-        The 11x11 is a real tie. Both dig four sources, both score 108, and the
-        layouts still differ -- which is the claim the paragraph makes, so both
+        The open 15x15 is a real tie. Both place four sources, both score 221, and
+        the layouts still differ -- which is exactly the paragraph's claim, so both
         halves are asserted: same score, *not* the same picture. If they ever
-        collapsed into the same layout the pair would be illustrating the
-        degenerate case again without anyone noticing.
+        collapsed into one layout the pair would be illustrating the degenerate
+        case again without anyone noticing.
         """
-        terrain = wheat_demo.TERRAINS["with_obstacles"]
+        terrain = wheat_demo.TERRAINS["large_15x15"]
         hand = baseline(wheat_demo.baseline_lattice, parse_grid(terrain))
         optimal = solve(terrain, Wheat())
 
-        assert hand.metrics.n_crop == optimal.metrics.n_crop == 108
+        assert hand.metrics.n_crop == optimal.metrics.n_crop == 221
         assert hand.metrics.n_support == optimal.metrics.n_support == 4
         assert hand.render() != optimal.render(), "the pair is pointless if they coincide"
 
@@ -599,13 +641,14 @@ class TestWheatBaselines:
         assert hand.metrics.n_support == optimal.metrics.n_support == 1
         assert hand.render() == optimal.render(), "the 9x9 has one answer, hence no lesson"
 
-    def test_the_readme_s_rubble_pair_is_six_sources_against_four(self):
-        """The README tells the reader to count the blue blocks. This is the count.
+    def test_rubble_is_where_the_wheat_solver_wins_by_spending_fewer_sources(self):
+        """How the solver's one wheat win happens, pinned to the mechanism.
 
-        The whole +2.7% is that arithmetic: 6 sources against 4 means two cells
-        the optimum does not flood, and the third wheat is the square the lattice
-        left dry. If the water counts drift, the paragraph beside the pictures
-        stops describing them.
+        `rubble` is no longer a README picture, but it is still the wheat demo's
+        only win, and this is *why* it wins: the lattice digs six sources and
+        strands a dry cell; the optimum covers the same field with four and leaves
+        none dry. The whole +2.7% is that arithmetic. Kept as a mechanism pin, not
+        a caption pin -- if it drifts, the demo's one interesting row is wrong.
         """
         terrain = wheat_demo.TERRAINS["rubble"]
         hand = baseline(wheat_demo.baseline_lattice, parse_grid(terrain))
