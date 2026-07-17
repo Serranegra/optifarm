@@ -12,14 +12,41 @@ license = { text = "MIT" }
 dependencies = ["ortools>=9.8"]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.4"]
+dev = ["pytest>=7.4", "pytest-xdist>=3.5"]
 
 [tool.setuptools.packages.find]
 include = ["mcfarm_opt*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+
+# -n 4, deliberately, and NOT -n auto.
+#
+# Every test here ends in CP-SAT, which is itself an 8-thread portfolio solver.
+# Run one pytest process per core and you get cores x 8 threads fighting over
+# cores, and the contention eats what the parallelism buys. Measured on an
+# 8-core machine, with the solve cache in tests/conftest.py already in place:
+#
+#     -n 0 (serial)   52.8s
+#     -n 2            59.7s
+#     -n 4            45.0s   <- best
+#     -n 6            49.7s
+#     -n 8            53.3s   <- what "auto" would pick here
+#
+# Roughly half the cores is the sweet spot. Override for a bigger box with
+# `pytest -n 8`; go serial for debugging with `pytest -n 0` (NOT `-p no:xdist`,
+# which unloads the plugin and then chokes on the -n sitting in this line).
+#
+# Two things worth knowing before tuning this further:
+#
+# Parallelism is the smaller lever here, and it fights the cache. The cache lives
+# in each process, so every extra worker can re-derive the same expensive solve;
+# -n 2 is *slower* than serial for exactly that reason. Caching took the suite
+# from 112s to 53s; xdist takes it from 53s to 45s.
+#
+# If it needs to get faster again, look for repeated work before reaching for
+# more workers. tests/conftest.py explains how the last round was found.
+addopts = "-q -n 4"
 
 [tool.ruff]
 line-length = 100

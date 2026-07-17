@@ -1,4 +1,4 @@
-"""Shared test helpers: independent oracles and layout validators.
+"""Shared test helpers: independent oracles, layout validators, and a solve cache.
 
 The oracles deliberately share no code with the library. They are brute-force
 enumerations of every possible placement, so a test comparing the two is testing
@@ -9,13 +9,93 @@ optima in the suite were checked once, offline, with the same method vectorised.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from functools import cache
 from itertools import combinations
 
 import pytest
 
-from mcfarm_opt import BlockType, FarmLayout, Neighborhood
+from mcfarm_opt import (
+    BlockType,
+    Cactus,
+    CropRule,
+    FarmLayout,
+    Grid,
+    Neighborhood,
+    Sugarcane,
+    Wheat,
+    optimize,
+)
 
 ORTHOGONAL_STEPS = ((-1, 0), (1, 0), (0, -1), (0, 1))
+
+
+# ============================================================================
+# Memoised solving
+# ============================================================================
+# Half this suite's runtime used to be spent re-deriving answers it already had.
+# The 15x15 sugarcane optimum takes 12.8s to prove and five different tests each
+# asked for it -- 64s of solving for 12.8s of information, on a suite that ran
+# in 116s. Measured, not guessed: a plugin counted every optimize() call and
+# found 58 of the 80 seconds inside the solver were recomputes.
+#
+# Caching costs nothing real here. These tests assert *values* -- "the optimum
+# is 172", "the optimum beats the baseline" -- and a value does not change for
+# being looked up twice. What caching would cost is the ability to notice the
+# solver returning different answers on identical input, and that is covered
+# on purpose elsewhere, by test_api.py::test_solver_is_deterministic_with_one_worker,
+# which calls optimize() directly and must keep doing so.
+#
+# One consequence worth knowing: callers now share FarmLayout objects. They are
+# frozen dataclasses over an immutable Grid, and nothing in the suite writes to
+# an assignment, so sharing is safe -- but it is a real coupling, and a test that
+# starts mutating a layout would poison every other test that asked for the same
+# one.
+#
+# Under xdist each worker process keeps its own cache, so the same solve can
+# still happen once per worker. That is fine: those repeats run in parallel,
+# which is exactly what the workers are for.
+
+_CROP_TYPES: dict[str, type[CropRule]] = {
+    "sugarcane": Sugarcane,
+    "cactus": Cactus,
+    "wheat": Wheat,
+}
+
+
+@cache
+def _solve_cached(terrain: str, crop_name: str, time_limit: float | None) -> FarmLayout:
+    return optimize(terrain, crop=_CROP_TYPES[crop_name](), time_limit=time_limit)
+
+
+def solve(terrain: str, crop: CropRule, *, time_limit: float | None = None) -> FarmLayout:
+    """Optimise ``terrain`` for ``crop``, reusing the answer if it is already known.
+
+    A drop-in for :func:`mcfarm_opt.optimize` in tests that only read the result.
+    Keyed on the terrain text and the crop's name rather than the crop object,
+    since crops are constructed fresh at every call site and would otherwise miss
+    the cache every time.
+
+    Do **not** use this to test the solver itself -- determinism, timing, status
+    under a time limit. Call ``optimize`` directly for those.
+    """
+    return _solve_cached(terrain, crop.name, time_limit)
+
+
+@cache
+def _baseline_cached(build: Callable[[Grid], FarmLayout | None], grid: Grid) -> FarmLayout | None:
+    return build(grid)
+
+
+def baseline(build: Callable[[Grid], FarmLayout | None], grid: Grid) -> FarmLayout | None:
+    """Run a demo's hand-built baseline, reusing the answer if it is already known.
+
+    The same argument as :func:`solve`, for the other expensive half. The greedy
+    sugarcane player costs 4.6s on the 15x15 and five tests want it. ``Grid`` is
+    hashable and immutable, and the builders are module-level functions, so both
+    make sound cache keys.
+    """
+    return _baseline_cached(build, grid)
 
 
 def _rows_of(text: str) -> list[str]:

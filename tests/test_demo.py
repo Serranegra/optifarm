@@ -25,7 +25,13 @@ import pytest
 
 from mcfarm_opt import BlockType, Cactus, Sugarcane, Wheat, optimize, parse_grid
 
-from .conftest import assert_valid_cactus, assert_valid_sugarcane, assert_valid_wheat
+from .conftest import (
+    assert_valid_cactus,
+    assert_valid_sugarcane,
+    assert_valid_wheat,
+    baseline,
+    solve,
+)
 
 EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
 
@@ -152,7 +158,7 @@ class TestBaselinesLeaveNothingOnTheTable:
         argument true if the patterns ever change.
         """
         grid = parse_grid(shared.TERRAINS[name])
-        layout = build(grid)
+        layout = baseline(build, grid)
         for cell in grid.free_cells():
             if layout.block_at(cell) is BlockType.EMPTY:
                 assert not any(
@@ -173,7 +179,7 @@ class TestBaselinesLeaveNothingOnTheTable:
         both; the repair pass does both; this checks neither was skipped.
         """
         grid = parse_grid(wheat_demo.TERRAINS[name])
-        layout = build(grid)
+        layout = baseline(build, grid)
         reach = wheat_demo._reachable(grid)
         water = set(layout.cells_with(BlockType.WATER))
         current = wheat_demo._wheat_count(reach, water)
@@ -202,7 +208,7 @@ class TestBaselinesLeaveNothingOnTheTable:
         claimed a +33.3% win it had not earned.
         """
         grid = parse_grid(shared.TERRAINS[name])
-        layout = build(grid)
+        layout = baseline(build, grid)
         for cell in grid.free_cells():
             if layout.block_at(cell) is BlockType.EMPTY:
                 blocked = any(
@@ -225,13 +231,13 @@ class TestSugarcaneBaselines:
     @pytest.mark.parametrize("build", BUILDERS)
     @pytest.mark.parametrize("name", TERRAIN_NAMES)
     def test_baseline_is_a_legal_sugarcane_layout(self, name, build):
-        layout = build(parse_grid(shared.TERRAINS[name]))
+        layout = baseline(build, parse_grid(shared.TERRAINS[name]))
         assert layout is not None
         assert_valid_sugarcane(layout)
 
     @pytest.mark.parametrize("build", BUILDERS)
     def test_baseline_is_not_claimed_optimal(self, build):
-        assert not build(parse_grid(shared.TERRAINS["rectangle_9x9"])).metrics.is_optimal
+        assert not baseline(build, parse_grid(shared.TERRAINS["rectangle_9x9"])).metrics.is_optimal
 
     def test_stripes_pick_the_best_offset(self):
         """On a 9x9 the offsets give 54 and 45; the baseline must report 54.
@@ -259,14 +265,14 @@ class TestSugarcaneBaselines:
     @pytest.mark.parametrize("name", TERRAIN_NAMES)
     def test_optimum_never_loses(self, name, build):
         grid = parse_grid(shared.TERRAINS[name])
-        optimal = optimize(shared.TERRAINS[name], crop=Sugarcane(), time_limit=30.0)
-        assert optimal.metrics.n_crop >= build(grid).metrics.n_crop
+        optimal = solve(shared.TERRAINS[name], Sugarcane(), time_limit=30.0)
+        assert optimal.metrics.n_crop >= baseline(build, grid).metrics.n_crop
 
     def test_the_solver_always_beats_the_patterns(self):
         """The sugarcane demo's first claim: hand patterns lose, everywhere."""
         for name in TERRAIN_NAMES:
             grid = parse_grid(shared.TERRAINS[name])
-            optimal = optimize(shared.TERRAINS[name], crop=Sugarcane(), time_limit=30.0)
+            optimal = solve(shared.TERRAINS[name], Sugarcane(), time_limit=30.0)
             stripes = cane_demo.baseline_stripes_1x2(grid)
             assert optimal.metrics.n_crop > stripes.metrics.n_crop, name
 
@@ -293,7 +299,7 @@ class TestSugarcaneBaselines:
         for name in TERRAIN_NAMES:
             grid = parse_grid(shared.TERRAINS[name])
             greedy = cane_demo.baseline_greedy_water(grid).metrics.n_crop
-            optimal = optimize(shared.TERRAINS[name], crop=Sugarcane(), time_limit=30.0)
+            optimal = solve(shared.TERRAINS[name], Sugarcane(), time_limit=30.0)
             gain = 100.0 * (optimal.metrics.n_crop - greedy) / greedy
             assert 0.0 <= gain < 10.0, f"{name}: solver is {gain:.1f}% over greedy"
 
@@ -301,7 +307,7 @@ class TestSugarcaneBaselines:
         """Even for sugarcane, there is a terrain where thinking is enough."""
         grid = parse_grid(shared.TERRAINS["ragged"])
         assert cane_demo.baseline_greedy_water(grid).metrics.n_crop == 18
-        assert optimize(shared.TERRAINS["ragged"], crop=Sugarcane()).metrics.n_crop == 18
+        assert solve(shared.TERRAINS["ragged"], Sugarcane()).metrics.n_crop == 18
 
     def test_a_naive_sweep_would_just_be_a_checkerboard(self):
         """Why the demo has no "naive sweep" baseline.
@@ -332,7 +338,7 @@ class TestCactusBaselines:
     @pytest.mark.parametrize("build", BUILDERS)
     @pytest.mark.parametrize("name", TERRAIN_NAMES)
     def test_baseline_is_a_legal_cactus_layout(self, name, build):
-        layout = build(parse_grid(shared.TERRAINS[name]))
+        layout = baseline(build, parse_grid(shared.TERRAINS[name]))
         assert layout is not None
         assert_valid_cactus(layout)
 
@@ -340,7 +346,7 @@ class TestCactusBaselines:
     @pytest.mark.parametrize("name", TERRAIN_NAMES)
     def test_baseline_places_no_water(self, name, build):
         """A cactus farm has no water. This is the bug the old CROP knob had."""
-        layout = build(parse_grid(shared.TERRAINS[name]))
+        layout = baseline(build, parse_grid(shared.TERRAINS[name]))
         assert layout.metrics.n_support == 0
         assert set(layout.render()) <= {"C", ".", "#", "\n"}
 
@@ -351,7 +357,7 @@ class TestCactusBaselines:
         neither strategy ever plants two cacti side by side. Checked, not
         trusted -- and the fill is the step that could break it."""
         grid = parse_grid(shared.TERRAINS[name])
-        layout = build(grid)
+        layout = baseline(build, grid)
         for cell in layout.cells_with(BlockType.CROP):
             for neighbor in grid.neighbors(cell):
                 assert layout.block_at(neighbor) is not BlockType.CROP
@@ -365,7 +371,7 @@ class TestCactusBaselines:
         """
         grid = parse_grid(shared.TERRAINS[name])
         hand = cactus_demo.baseline_checkerboard(grid)
-        optimal = optimize(shared.TERRAINS[name], crop=Cactus())
+        optimal = solve(shared.TERRAINS[name], Cactus())
         assert optimal.metrics.n_crop == hand.metrics.n_crop, (
             f"the checkerboard should tie the optimum on {name}"
         )
@@ -383,7 +389,7 @@ class TestCactusBaselines:
         """
         grid = parse_grid(shared.TERRAINS[name])
         greedy = cactus_demo.baseline_greedy(grid)
-        optimal = optimize(shared.TERRAINS[name], crop=Cactus())
+        optimal = solve(shared.TERRAINS[name], Cactus())
         assert greedy.metrics.n_crop == optimal.metrics.n_crop
 
     def test_the_solvers_best_win_over_a_greedy_player_is_tiny(self):
@@ -393,7 +399,7 @@ class TestCactusBaselines:
         """
         grid = parse_grid(shared.TERRAINS["with_obstacles"])
         greedy = cactus_demo.baseline_greedy(grid)
-        optimal = optimize(shared.TERRAINS["with_obstacles"], crop=Cactus())
+        optimal = solve(shared.TERRAINS["with_obstacles"], Cactus())
         assert greedy.metrics.n_crop == 41
         assert optimal.metrics.n_crop == 43
 
@@ -407,7 +413,7 @@ class TestCactusBaselines:
         """
         grid = parse_grid(shared.TERRAINS["with_obstacles"])
         hand = cactus_demo.baseline_checkerboard(grid)
-        optimal = optimize(shared.TERRAINS["with_obstacles"], crop=Cactus())
+        optimal = solve(shared.TERRAINS["with_obstacles"], Cactus())
         assert hand.metrics.n_crop == optimal.metrics.n_crop == 43
 
     def test_the_greedy_sweep_beats_the_checkerboard_on_rocky_ground(self):
@@ -448,8 +454,8 @@ class TestCactusBaselines:
     @pytest.mark.parametrize("name", TERRAIN_NAMES)
     def test_optimum_never_loses(self, name, build):
         grid = parse_grid(shared.TERRAINS[name])
-        optimal = optimize(shared.TERRAINS[name], crop=Cactus(), time_limit=30.0)
-        assert optimal.metrics.n_crop >= build(grid).metrics.n_crop
+        optimal = solve(shared.TERRAINS[name], Cactus(), time_limit=30.0)
+        assert optimal.metrics.n_crop >= baseline(build, grid).metrics.n_crop
 
 
 class TestWheatBaselines:
@@ -458,7 +464,7 @@ class TestWheatBaselines:
     @pytest.mark.parametrize("build", BUILDERS)
     @pytest.mark.parametrize("name", WHEAT_TERRAIN_NAMES)
     def test_baseline_is_a_legal_wheat_layout(self, name, build):
-        layout = build(parse_grid(wheat_demo.TERRAINS[name]))
+        layout = baseline(build, parse_grid(wheat_demo.TERRAINS[name]))
         assert layout is not None
         assert_valid_wheat(layout)
 
@@ -466,8 +472,8 @@ class TestWheatBaselines:
     @pytest.mark.parametrize("name", WHEAT_TERRAIN_NAMES)
     def test_optimum_never_loses(self, name, build):
         grid = parse_grid(wheat_demo.TERRAINS[name])
-        optimal = optimize(wheat_demo.TERRAINS[name], crop=Wheat(), time_limit=30.0)
-        assert optimal.metrics.n_crop >= build(grid).metrics.n_crop
+        optimal = solve(wheat_demo.TERRAINS[name], Wheat(), time_limit=30.0)
+        assert optimal.metrics.n_crop >= baseline(build, grid).metrics.n_crop
 
     @pytest.mark.parametrize("name", [n for n in WHEAT_TERRAIN_NAMES if n != "rubble"])
     def test_hand_strategies_tie_the_optimum_almost_everywhere(self, name):
@@ -478,7 +484,7 @@ class TestWheatBaselines:
         it is the proven optimum, and people already build it.
         """
         grid = parse_grid(wheat_demo.TERRAINS[name])
-        optimal = optimize(wheat_demo.TERRAINS[name], crop=Wheat(), time_limit=30.0)
+        optimal = solve(wheat_demo.TERRAINS[name], Wheat(), time_limit=30.0)
         assert wheat_demo.baseline_lattice(grid).metrics.n_crop == optimal.metrics.n_crop
         assert wheat_demo.baseline_greedy(grid).metrics.n_crop == optimal.metrics.n_crop
 
@@ -490,7 +496,7 @@ class TestWheatBaselines:
         the demo has an honest worst case rather than a table of zeros.
         """
         grid = parse_grid(wheat_demo.TERRAINS["rubble"])
-        optimal = optimize(wheat_demo.TERRAINS["rubble"], crop=Wheat())
+        optimal = solve(wheat_demo.TERRAINS["rubble"], Wheat())
         assert optimal.metrics.n_crop == 116
         assert wheat_demo.baseline_lattice(grid).metrics.n_crop == 113
         assert wheat_demo.baseline_greedy(grid).metrics.n_crop == 115
@@ -521,7 +527,7 @@ class TestWheatBaselines:
             for c in range(9)
         )
         repaired = wheat_demo.baseline_lattice(grid).metrics.n_crop
-        optimal = optimize(wheat_demo.TERRAINS["two_fields"], crop=Wheat()).metrics.n_crop
+        optimal = solve(wheat_demo.TERRAINS["two_fields"], Wheat()).metrics.n_crop
 
         assert best_raw == 252
         assert repaired == optimal == 320
@@ -556,7 +562,7 @@ class TestGracefulDegradation:
     )
     def test_every_baseline_degrades_on_a_fully_blocked_grid(self, build):
         """No free cells at all: None, not an exception."""
-        assert build(parse_grid("###\n###")) is None
+        assert baseline(build, parse_grid("###\n###")) is None
 
     @pytest.mark.parametrize(
         "build",
@@ -576,7 +582,7 @@ class TestGracefulDegradation:
         exception -- 2 is well inside its reach of 4 -- so it is excluded here
         and gets its own case below.
         """
-        assert build(parse_grid("#.#\n###\n#.#")) is None
+        assert baseline(build, parse_grid("#.#\n###\n#.#")) is None
 
     @pytest.mark.parametrize("build", [wheat_demo.baseline_lattice, wheat_demo.baseline_greedy])
     @pytest.mark.parametrize("terrain", [".", ".#########."])
@@ -587,7 +593,7 @@ class TestGracefulDegradation:
         other's 9x9, so whichever one takes the water, the other stays dry --
         two perfectly good cells and no wheat.
         """
-        assert build(parse_grid(terrain)) is None
+        assert baseline(build, parse_grid(terrain)) is None
 
     def test_wheat_reaches_across_a_wall_that_stops_the_others(self):
         """The same two cells the short-reach crops fail on: wheat is fine.
