@@ -1,8 +1,12 @@
-# optifarm
+<p align="center">
+  <img src="assets/logo.svg" width="140" alt="optifarm logo">
+</p>
 
-Compute **provably optimal** Minecraft farm layouts. Give it a terrain and a crop;
-it returns the block placement that maximises production, and a proof that nothing
-better exists — via an OR-Tools CP-SAT model.
+<h1 align="center">optifarm</h1>
+<p align="center"><i>Mathematically optimal Minecraft farm layouts.</i></p>
+
+Give it a terrain and a crop; it returns the block placement that maximises
+production, and a proof that nothing better exists — via an OR-Tools CP-SAT model.
 
 Implements **sugarcane**, **cactus** and **wheat** — three rules that disagree
 about everything (cane needs water *beside* it, cactus needs nothing solid beside

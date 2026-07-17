@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" shape-rendering="crispEdges">
+  <!-- optifarm logo v9: pixel-art outline only, flat fill otherwise -->
+
+  <rect x="0" y="0" width="300" height="300" fill="#101828"/>
+
+  <defs>
+    <!-- cane block: flat fill + pixelated (stepped) highlight/shadow border only -->
+    <g id="cane-px">
+      <rect width="76" height="76" fill="#22c55e"/>
+      <rect x="0" y="0" width="76" height="9" fill="#86efac"/>
+      <rect x="0" y="0" width="9" height="76" fill="#86efac"/>
+      <rect x="0" y="67" width="76" height="9" fill="#15803d"/>
+      <rect x="67" y="0" width="9" height="76" fill="#15803d"/>
+    </g>
+  </defs>
+
+  <!-- row 1: C C C -->
+  <use href="#cane-px" x="33" y="33"/>
+  <use href="#cane-px" x="112" y="33"/>
+  <use href="#cane-px" x="191" y="33"/>
+
+  <!-- row 2: water strip, flat, no border -->
+  <rect x="33" y="112" width="234" height="76" fill="#0ea5e9"/>
+
+  <!-- row 3: C C C -->
+  <use href="#cane-px" x="33" y="191"/>
+  <use href="#cane-px" x="112" y="191"/>
+  <use href="#cane-px" x="191" y="191"/>
+</svg>
