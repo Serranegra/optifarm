@@ -4,20 +4,22 @@ Compute **provably optimal** Minecraft farm layouts. Give it a terrain and a cro
 it returns the block placement that maximises production, and a proof that nothing
 better exists — via an OR-Tools CP-SAT model.
 
-Implements **sugarcane** and **cactus** — rules that pull in opposite directions
-(cane needs water beside it, cactus needs nothing solid beside it) and share every
-line of the core. Adding the next crop is a new rule file and nothing else.
+Implements **sugarcane**, **cactus** and **wheat** — three rules that disagree
+about everything (cane needs water *beside* it, cactus needs nothing solid beside
+it, wheat needs water *within 4 in every direction*) and share every line of the
+core. Adding the next crop is a new rule file and nothing else.
 
 ## Quick start
 
 ```bash
-python examples/demo_sugarcane.py     # hand patterns lose. use the solver.
-python examples/demo_cactus.py        # hand pattern already wins. mostly don't.
+python examples/demo_sugarcane.py     # +4-7% over a thinking player. worth it.
+python examples/demo_cactus.py        # +2.9% at best. barely.
+python examples/demo_wheat.py         # +0.0% on 6 of 7 maps. don't bother.
 ```
 
 No arguments, nothing to write. Each solves a terrain and shows what the
-optimiser bought you over the patterns people build by hand — and for cactus,
-the honest answer is often *nothing*, which is the point. Sugarcane first:
+optimiser bought you over what people build by hand — and for two of the three
+crops the honest answer is *almost nothing*, which is the point. Sugarcane first:
 
 ```
 ==================================================================
@@ -116,9 +118,33 @@ all — sweeping the field, planting wherever it is legal — ties the optimum o
 of the five terrains. The exact solver's best win over that player is **+2.9%, on
 one map**.
 
-So the two crops bracket the answer: for sugarcane the solver is worth a real but
-single-digit margin over someone thinking; for cactus it is worth essentially
-nothing. Saying so is the most useful thing it does. More on that below.
+And wheat, the third, closes the case:
+
+```
+  Terrain         Free      9-lattice   Greedy water        Optimal   vs latt   vs greedy
+  --------------  ----  -------------  -------------  -------------  --------  ----------
+  rectangle_9x9     81     80 (98.8%)     80 (98.8%)     80 (98.8%)     +0.0%       +0.0%
+  l_shape           68     66 (97.1%)     66 (97.1%)     66 (97.1%)     +0.0%       +0.0%
+  with_obstacles    92     88 (95.7%)     88 (95.7%)     88 (95.7%)     +0.0%       +0.0%
+  ragged            26     25 (96.2%)     25 (96.2%)     25 (96.2%)     +0.0%       +0.0%
+  large_15x15      225    221 (98.2%)    221 (98.2%)    221 (98.2%)     +0.0%       +0.0%
+  two_fields       324    320 (98.8%)    320 (98.8%)    320 (98.8%)     +0.0%       +0.0%
+  rubble           120    113 (94.2%)    115 (95.8%)    116 (96.7%)     +2.7%       +0.9%
+```
+
+So the three crops bracket the answer, and none of the brackets are wide:
+
+| Crop | What the rule is | What the solver is worth |
+|------|------------------|--------------------------|
+| Sugarcane | a **trade** — water costs 1, feeds 4 | **+4–7%** over a thinking player |
+| Cactus | **exclusion** — no two may touch | **+2.9%**, on one map |
+| Wheat | **covering** — water costs 1, feeds 80 | **+0.0%** on 6 of 7 maps |
+
+The pattern is not subtle: exact optimisation pays exactly where the rule creates
+a real tension between cost and benefit. Sugarcane has one. Cactus barely does.
+Wheat has none at all — water is so cheap that the problem stops being an
+optimisation and becomes "cover the field", which people are good at. Saying so
+is the most useful thing this library does. More on that below.
 
 ## What the comparison shows
 
@@ -173,24 +199,27 @@ checkerboard cannot. That greedy sweep ties the exact optimum on four of five
 terrains; the solver's entire advantage over it is +2.9%, once.
 
 So the honest summary is not "always optimise". It is: **for sugarcane the solver
-buys you a few percent over a thoughtful player; for cactus it buys you nothing.**
-A tool worth trusting is one that will tell you when to leave it in the drawer,
-and the demos say that out loud instead of burying a +0.0% in a table.
+buys a few percent over a thoughtful player; for cactus, almost nothing; for
+wheat, nothing at all.** A tool worth trusting is one that will tell you when to
+leave it in the drawer, and the demos say that out loud instead of burying a
++0.0% in a table.
 
 Every number above got smaller as the baselines got fairer, and that history is
 worth stating plainly:
 
 - The hand patterns did not fill the holes their pruning left, so they threw away
-  cane and cactus a real player would have planted.
+  crop a real player would have planted.
 - The cactus demo had a "sparse grid" opponent scoring +64% for the solver. Fill
   its holes and it simply *is* the checkerboard. The +64% was fiction.
-- Both demos measured the solver against *patterns*, when a player who follows no
+- Every demo measured the solver against *patterns*, when a player who follows no
   pattern does better than any of them. That alone cut sugarcane's headline from
   13–31% down to 4–7%, and cactus's from +33% to +0%.
+- Wheat's 9-lattice scores 252 on `two_fields` if you stamp it and walk away, and
+  320 — the proven optimum — if you repair it the way anyone standing in the field
+  would. The unrepaired version would have advertised +27%.
 
-None of those were rounding errors; each one was the measurement flattering the
-thing being measured. A comparison is worth exactly as much as the opponent it
-picks.
+None of those were rounding errors; each was the measurement flattering the thing
+being measured. A comparison is worth exactly as much as the opponent it picks.
 
 See [`examples/README.md`](examples/README.md) for why the demos are split per
 crop rather than sharing a `CROP` switch.
@@ -358,6 +387,53 @@ On open ground the answer is the checkerboard everyone already builds —
 it. The solver earns its keep on irregular terrain, where *which half of the
 board* stops being a global choice.
 
+## The wheat model
+
+Structurally identical to sugarcane. Economically nothing like it.
+
+A cell may hold wheat iff it is free, is not water, and has water **within 4
+blocks in every direction** — Chebyshev distance, so one source hydrates the 9×9
+square around it. Same `AdjacencyRequirement` as sugarcane with two parameters
+turned: `DIAGONAL` instead of `ORTHOGONAL`, radius 4 instead of 1.
+
+That small change inverts the economics. Sugarcane is a **trade** — a water block
+costs one cell and feeds at most four, so water is expensive and the optimum sits
+near 75%. Wheat is a **covering problem** — a water block still costs one cell but
+feeds up to eighty, so water is nearly free and the only question is how few
+sources cover the field. The optimum runs to about **98%**.
+
+```
+CCCCCCCCC     9×9, one source, 80 wheat, 98.8% — proven optimal
+CCCCCCCCC
+CCCCCCCCC
+CCCCCCCCC
+CCCCWCCCC
+CCCCCCCCC
+CCCCCCCCC
+CCCCCCCCC
+CCCCCCCCC
+```
+
+**Hydration ignores what is in the way.** Minecraft checks distance, not line of
+sight, so a wall between the water and the farmland shades nothing. That falls out
+for free — the rule counts water in the neighbourhood, and an obstacle cannot hold
+water. The farmland itself is implicit, exactly as sugarcane's sand is: it sits
+*under* the wheat, in the same cell of the projection, so it is never a neighbour.
+
+Wheat is the one crop with a **closed form**. On an open `m × n` rectangle:
+
+```
+wheat = m*n - ceil(m/9) * ceil(n/9)
+```
+
+The lower bound is a witness argument: take the cells at rows 0, 9, 18, … and
+columns 0, 9, 18, … Any two are at Chebyshev distance ≥ 9, and a source only
+reaches 4 — so two cells it serves are within 8 of each other, and no source can
+serve two witnesses. That forces `ceil(m/9)·ceil(n/9)` sources, and a 9-spaced
+lattice achieves it. The bound is tight, which makes it a proof rather than an
+estimate — and a far better test oracle than brute force, since wheat's
+interesting cases start at 81 cells and `2^81` is not a number.
+
 ## Extending: adding a crop
 
 A crop implements `CropRule`. Most crops need no CP-SAT at all — subclass
@@ -392,16 +468,17 @@ sugarcane. No core file was touched to add it.
 
 The three shapes the interface is designed to cover:
 
-| Crop      | Rule                                   | Requirement                                                   | Status |
-|-----------|----------------------------------------|---------------------------------------------------------------|--------|
-| Sugarcane | needs water orthogonally adjacent      | `AdjacencyRequirement({WATER}, minimum=1)`                     | shipped |
-| Cactus    | no solid block orthogonally adjacent   | `AdjacencyRequirement({CROP, OBSTACLE}, maximum=0)`            | shipped |
-| Wheat     | water within radius 4, incl. diagonals | `AdjacencyRequirement({WATER}, DIAGONAL, radius=4, minimum=1)` | not yet |
+| Crop      | Rule                                   | Requirement                                                   |
+|-----------|----------------------------------------|---------------------------------------------------------------|
+| Sugarcane | needs water orthogonally adjacent      | `AdjacencyRequirement({WATER}, minimum=1)`                     |
+| Cactus    | no solid block orthogonally adjacent   | `AdjacencyRequirement({CROP, OBSTACLE}, maximum=0)`            |
+| Wheat     | water within 4 in every direction      | `AdjacencyRequirement({WATER}, DIAGONAL, radius=4, minimum=1)` |
 
-Nothing about water or adjacency is hardcoded in the core: the grid only knows
-about distance metrics, and the variables only know about "exactly one block per
-cell". Sugarcane and cactus prove that in shipped code; wheat's radius rule is
-exercised in `tests/test_extensibility.py` against the same core, unmodified.
+All three ship, and all three are one `requirements()` method over the same
+unmodified core — the sign, the metric and the radius are parameters, so rules
+that pull in opposite directions come out of one abstraction. Nothing about water
+or adjacency is hardcoded anywhere below `crops/`: the grid only knows about
+distance metrics, and the variables only know about "exactly one block per cell".
 
 For a rule no declarative scheme anticipates, implement `CropRule` directly and
 write the constraints by hand — you get the model, the variables and the grid.
@@ -419,8 +496,9 @@ mcfarm_opt/
 │   └── result.py    #   FarmLayout + FarmMetrics
 ├── crops/           # what makes a cell plantable. one module per crop.
 │   ├── base.py      #   CropRule protocol + AdjacencyCropRule helper
-│   ├── sugarcane.py #   positive adjacency: needs water beside it
-│   └── cactus.py    #   negative adjacency: needs nothing solid beside it
+│   ├── sugarcane.py #   positive adjacency: water within 1, orthogonal
+│   ├── cactus.py    #   negative adjacency: nothing solid within 1
+│   └── wheat.py     #   radius adjacency:   water within 4, every direction
 ├── solvers/         # how the model is searched
 │   ├── base.py      #   Solver protocol
 │   └── ilp.py       #   exact, via CP-SAT
@@ -430,7 +508,8 @@ mcfarm_opt/
 examples/
 ├── _shared.py          # terrains + print plumbing. not worth reading.
 ├── demo_sugarcane.py   # runnable, commented as documentation
-└── demo_cactus.py      # ditto, and it argues the opposite case
+├── demo_cactus.py      # ditto, and it argues the opposite case
+└── demo_wheat.py       # ditto, and it argues the case most against us
 ```
 
 `core/variables.py` is the one module not in the original design sketch. It holds
@@ -444,7 +523,7 @@ from importing solvers or vice versa.
 python -m pytest
 ```
 
-329 tests. The interesting ones are in `tests/test_sugarcane.py::TestAgainstBruteForce`:
+543 tests. The interesting ones are in `tests/test_sugarcane.py::TestAgainstBruteForce`:
 they check the CP-SAT model against an **exhaustive enumeration of every possible
 water placement**, written in `tests/conftest.py` and sharing no code with the
 library. That tests the model against the definition of the problem rather than
@@ -460,6 +539,13 @@ rectangle from 1×1 to 6×6 is checked against arithmetic that owes the solver
 nothing. Its brute-force oracle is separate from sugarcane's — same discipline,
 different rule.
 
+`tests/test_wheat.py` has to work differently, and ends up stronger for it. Brute
+force is exponential and wheat's interesting cases start at 81 free cells, so
+enumeration only reaches 1×N strips and toy grids. The real check is the closed
+form `m*n - ceil(m/9)*ceil(n/9)`, verified against the solver on every open
+rectangle up to 19×19 — arithmetic derived from a witness argument, not from
+anything the solver said.
+
 `tests/test_demo.py` guards the demos' headline claims. Every baseline they compare
 against is checked to be a **legal** layout under its own crop's rule — using the
 same validators that check the solver's own output. A pattern claiming crop it
@@ -472,7 +558,7 @@ drifts, either the claim or the model is wrong.
 
 ## Not yet implemented
 
-- Wheat, melons, mushrooms (the interface is ready; the rules are not written)
+- Melons, mushrooms, nether wart (the interface is ready; the rules are not written)
 - Heuristic solvers for terrains too large to solve exactly
 - Graphical visualisation
 - Schematic export

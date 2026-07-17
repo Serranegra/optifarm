@@ -23,9 +23,9 @@ from pathlib import Path
 
 import pytest
 
-from mcfarm_opt import BlockType, Cactus, Sugarcane, optimize, parse_grid
+from mcfarm_opt import BlockType, Cactus, Sugarcane, Wheat, optimize, parse_grid
 
-from .conftest import assert_valid_cactus, assert_valid_sugarcane
+from .conftest import assert_valid_cactus, assert_valid_sugarcane, assert_valid_wheat
 
 EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
 
@@ -56,8 +56,10 @@ import _shared as shared  # noqa: E402
 
 cane_demo = _load("demo_sugarcane")
 cactus_demo = _load("demo_cactus")
+wheat_demo = _load("demo_wheat")
 
 TERRAIN_NAMES = list(shared.TERRAINS)
+WHEAT_TERRAIN_NAMES = list(wheat_demo.TERRAINS)
 
 
 class TestSharedTerrains:
@@ -78,15 +80,32 @@ class TestSharedTerrains:
     def test_the_rocky_terrains_actually_have_obstacles(self, name):
         assert len(list(parse_grid(shared.TERRAINS[name]).obstacles())) > 0
 
-    @pytest.mark.parametrize("demo", [cane_demo, cactus_demo])
+    @pytest.mark.parametrize("demo", [cane_demo, cactus_demo, wheat_demo])
     def test_the_configured_terrain_is_a_real_key(self, demo):
         """Guards against a typo in the one line each demo invites you to edit."""
-        assert demo.TERRAIN in shared.TERRAINS
+        assert demo.TERRAIN in demo.TERRAINS
 
-    def test_both_demos_solve_the_same_land(self):
-        """The terrains are shared on purpose: it is what makes cane and cactus
+    def test_the_demos_solve_the_same_land(self):
+        """The terrains are shared on purpose: it is what makes the crops
         comparable on identical ground."""
         assert cane_demo.TERRAINS is cactus_demo.TERRAINS is shared.TERRAINS
+
+    def test_wheat_extends_the_shared_terrains_rather_than_replacing_them(self):
+        """Wheat reaches nine blocks, so most shared terrains fit inside one
+        source and tie trivially. It keeps them -- that tie is most of its
+        argument -- and adds two sized for the crop."""
+        assert set(shared.TERRAINS) < set(wheat_demo.TERRAINS)
+        assert set(wheat_demo.WHEAT_TERRAINS) == {"two_fields", "rubble"}
+
+    def test_wheat_only_terrains_are_too_big_for_sugarcane(self):
+        """Why they are not in _shared: they would hang the sugarcane demo.
+
+        Sugarcane cannot prove an 18x18 in 30 seconds; both of these are larger
+        or nastier than that. Wheat proves them in a fraction of a second.
+        """
+        for name in wheat_demo.WHEAT_TERRAINS:
+            grid = parse_grid(wheat_demo.TERRAINS[name])
+            assert len(list(grid.free_cells())) >= 100
 
 
 class TestEachDemoFixesItsCrop:
@@ -98,6 +117,9 @@ class TestEachDemoFixesItsCrop:
 
     def test_cactus_demo_grows_cactus(self):
         assert isinstance(cactus_demo.CROP, Cactus)
+
+    def test_wheat_demo_grows_wheat(self):
+        assert isinstance(wheat_demo.CROP, Wheat)
 
 
 class TestBaselinesLeaveNothingOnTheTable:
@@ -136,6 +158,36 @@ class TestBaselinesLeaveNothingOnTheTable:
                 assert not any(
                     layout.block_at(n) is BlockType.WATER for n in grid.neighbors(cell)
                 ), f"{build.__name__} on {name} left cane unplanted next to water at {cell}"
+
+    @pytest.mark.parametrize(
+        "build", [wheat_demo.baseline_lattice, wheat_demo.baseline_greedy]
+    )
+    @pytest.mark.parametrize("name", WHEAT_TERRAIN_NAMES)
+    def test_no_wheat_baseline_leaves_an_obvious_improvement(self, name, build):
+        """Wheat's version of the same trap, and it has two shapes.
+
+        A wheat baseline cannot just plant in a hole -- a dry cell needs a
+        *source*, which costs a cell of its own. So "leaving something on the
+        table" means either a source worth digging that was not dug, or a
+        redundant source worth pulling that was not pulled. A player would do
+        both; the repair pass does both; this checks neither was skipped.
+        """
+        grid = parse_grid(wheat_demo.TERRAINS[name])
+        layout = build(grid)
+        reach = wheat_demo._reachable(grid)
+        water = set(layout.cells_with(BlockType.WATER))
+        current = wheat_demo._wheat_count(reach, water)
+
+        for cell in grid.free_cells():
+            if cell in water:
+                continue
+            assert wheat_demo._wheat_count(reach, water | {cell}) <= current, (
+                f"{build.__name__} on {name} left a source undug at {cell}"
+            )
+        for source in water:
+            assert wheat_demo._wheat_count(reach, water - {source}) <= current, (
+                f"{build.__name__} on {name} left a redundant source at {source}"
+            )
 
     @pytest.mark.parametrize(
         "build", [cactus_demo.baseline_checkerboard, cactus_demo.baseline_greedy]
@@ -387,7 +439,112 @@ class TestCactusBaselines:
         assert optimal.metrics.n_crop >= build(grid).metrics.n_crop
 
 
+class TestWheatBaselines:
+    BUILDERS = [wheat_demo.baseline_lattice, wheat_demo.baseline_greedy]
+
+    @pytest.mark.parametrize("build", BUILDERS)
+    @pytest.mark.parametrize("name", WHEAT_TERRAIN_NAMES)
+    def test_baseline_is_a_legal_wheat_layout(self, name, build):
+        layout = build(parse_grid(wheat_demo.TERRAINS[name]))
+        assert layout is not None
+        assert_valid_wheat(layout)
+
+    @pytest.mark.parametrize("build", BUILDERS)
+    @pytest.mark.parametrize("name", WHEAT_TERRAIN_NAMES)
+    def test_optimum_never_loses(self, name, build):
+        grid = parse_grid(wheat_demo.TERRAINS[name])
+        optimal = optimize(wheat_demo.TERRAINS[name], crop=Wheat(), time_limit=30.0)
+        assert optimal.metrics.n_crop >= build(grid).metrics.n_crop
+
+    @pytest.mark.parametrize("name", [n for n in WHEAT_TERRAIN_NAMES if n != "rubble"])
+    def test_hand_strategies_tie_the_optimum_almost_everywhere(self, name):
+        """The wheat demo's headline, pinned.
+
+        Six of the seven terrains: the solver wins nothing. Water hydrates 80
+        cells and costs one, so a source every nine blocks is not a heuristic --
+        it is the proven optimum, and people already build it.
+        """
+        grid = parse_grid(wheat_demo.TERRAINS[name])
+        optimal = optimize(wheat_demo.TERRAINS[name], crop=Wheat(), time_limit=30.0)
+        assert wheat_demo.baseline_lattice(grid).metrics.n_crop == optimal.metrics.n_crop
+        assert wheat_demo.baseline_greedy(grid).metrics.n_crop == optimal.metrics.n_crop
+
+    def test_rubble_is_the_only_terrain_where_the_solver_earns_anything(self):
+        """And it earns 0.9% over a greedy player. That is the whole prize.
+
+        Found by randomised search over 220 terrains: the hand strategy lost on
+        10 of them, never by more than 2.65%. `rubble` is one of those, kept so
+        the demo has an honest worst case rather than a table of zeros.
+        """
+        grid = parse_grid(wheat_demo.TERRAINS["rubble"])
+        optimal = optimize(wheat_demo.TERRAINS["rubble"], crop=Wheat())
+        assert optimal.metrics.n_crop == 116
+        assert wheat_demo.baseline_lattice(grid).metrics.n_crop == 113
+        assert wheat_demo.baseline_greedy(grid).metrics.n_crop == 115
+
+    def test_greedy_beats_the_lattice_where_there_is_no_lattice_to_follow(self):
+        """Rubble has no regular spacing, so the pattern has nothing to lock onto."""
+        grid = parse_grid(wheat_demo.TERRAINS["rubble"])
+        assert (
+            wheat_demo.baseline_greedy(grid).metrics.n_crop
+            > wheat_demo.baseline_lattice(grid).metrics.n_crop
+        )
+
+    def test_the_repair_is_what_makes_the_lattice_honest(self):
+        """On two_fields the raw lattice scores 252 and the repaired one 320.
+
+        Without the repair this demo could advertise a +27% win for the solver,
+        and every digit would be invented -- the lattice's sources land inside
+        the walls, and any player would move them. This is the exact failure the
+        cactus demo shipped with before its baselines were fixed, pinned here so
+        it cannot come back.
+        """
+        grid = parse_grid(wheat_demo.TERRAINS["two_fields"])
+        reach = wheat_demo._reachable(grid)
+
+        best_raw = max(
+            wheat_demo._wheat_count(reach, wheat_demo._apply_lattice(grid, r, c))
+            for r in range(9)
+            for c in range(9)
+        )
+        repaired = wheat_demo.baseline_lattice(grid).metrics.n_crop
+        optimal = optimize(wheat_demo.TERRAINS["two_fields"], crop=Wheat()).metrics.n_crop
+
+        assert best_raw == 252
+        assert repaired == optimal == 320
+        assert 100.0 * (optimal - best_raw) / best_raw > 25.0  # the fiction avoided
+
+    def test_the_lattice_alignment_is_searched_not_assumed(self):
+        """A player slides the lattice to fit; anchoring it at the corner and
+        shrugging would be a strawman."""
+        grid = parse_grid(wheat_demo.TERRAINS["rubble"])
+        reach = wheat_demo._reachable(grid)
+        corner = wheat_demo._wheat_count(reach, wheat_demo._apply_lattice(grid, 0, 0))
+        best = max(
+            wheat_demo._wheat_count(reach, wheat_demo._apply_lattice(grid, r, c))
+            for r in range(9)
+            for c in range(9)
+        )
+        assert best > corner
+
+
 class TestGracefulDegradation:
+    @pytest.mark.parametrize(
+        "build",
+        [
+            cane_demo.baseline_checkerboard,
+            cane_demo.baseline_stripes_1x2,
+            cane_demo.baseline_greedy_water,
+            cactus_demo.baseline_checkerboard,
+            cactus_demo.baseline_greedy,
+            wheat_demo.baseline_lattice,
+            wheat_demo.baseline_greedy,
+        ],
+    )
+    def test_every_baseline_degrades_on_a_fully_blocked_grid(self, build):
+        """No free cells at all: None, not an exception."""
+        assert build(parse_grid("###\n###")) is None
+
     @pytest.mark.parametrize(
         "build",
         [
@@ -398,10 +555,36 @@ class TestGracefulDegradation:
             cactus_demo.baseline_greedy,
         ],
     )
-    @pytest.mark.parametrize("terrain", ["###\n###", "#.#\n###\n#.#"])
-    def test_baseline_returns_none_instead_of_crashing(self, terrain, build):
-        """Terrains where a strategy grows nothing must degrade, not raise."""
+    def test_two_isolated_cells_beat_the_short_reach_crops(self, build):
+        """Two cells 2 apart, each walled in.
+
+        Cane cannot reach across (its water must be orthogonally adjacent) and
+        cactus cannot grow at all (both cells touch a wall). Wheat is the
+        exception -- 2 is well inside its reach of 4 -- so it is excluded here
+        and gets its own case below.
+        """
+        assert build(parse_grid("#.#\n###\n#.#")) is None
+
+    @pytest.mark.parametrize("build", [wheat_demo.baseline_lattice, wheat_demo.baseline_greedy])
+    @pytest.mark.parametrize("terrain", [".", ".#########."])
+    def test_wheat_degrades_when_nothing_is_in_reach(self, terrain, build):
+        """Wheat needs a *neighbour* to hold the water; it cannot hydrate itself.
+
+        A single cell has nobody to water it. Two cells 10 apart are outside each
+        other's 9x9, so whichever one takes the water, the other stays dry --
+        two perfectly good cells and no wheat.
+        """
         assert build(parse_grid(terrain)) is None
+
+    def test_wheat_reaches_across_a_wall_that_stops_the_others(self):
+        """The same two cells the short-reach crops fail on: wheat is fine.
+
+        Hydration is distance, not line of sight, so the wall between them does
+        not matter -- one holds water, the other grows.
+        """
+        layout = wheat_demo.baseline_greedy(parse_grid("#.#\n###\n#.#"))
+        assert layout is not None
+        assert layout.metrics.n_crop == 1
 
     def test_a_single_cell_grows_cactus_but_no_cane(self):
         """The crops' mirror image, at the smallest possible scale."""
@@ -409,7 +592,7 @@ class TestGracefulDegradation:
         assert cactus_demo.baseline_greedy(parse_grid(".")).metrics.n_crop == 1
         assert cane_demo.baseline_stripes_1x2(parse_grid(".")) is None
 
-    @pytest.mark.parametrize("demo", [cane_demo, cactus_demo])
+    @pytest.mark.parametrize("demo", [cane_demo, cactus_demo, wheat_demo])
     def test_comparison_handles_a_missing_baseline(self, demo, capsys):
         optimal = optimize("...\n...", crop=demo.CROP)
         demo.print_comparison(optimal, [("Whatever", None)])
@@ -454,7 +637,26 @@ class TestOutput:
         cactus_demo.run_one("rectangle_9x9")
         assert "tie" in capsys.readouterr().out
 
-    @pytest.mark.parametrize("demo", [cane_demo, cactus_demo])
+    def test_wheat_demo_prints_terrain_layouts_and_comparison(self, capsys):
+        wheat_demo.run_one("rubble")
+        out = capsys.readouterr().out
+        assert "Wheat on rubble" in out
+        assert "9-lattice by hand" in out
+        assert "Greedy water by hand" in out
+        assert "wheat" in out and "water" in out and "efficiency" in out
+
+    def test_wheat_demo_reports_the_tie_as_a_tie(self, capsys):
+        wheat_demo.run_one("rectangle_9x9")
+        assert "tie" in capsys.readouterr().out
+
+    def test_wheat_summary_table(self, capsys):
+        wheat_demo.run_all()
+        out = capsys.readouterr().out
+        assert "rectangle_9x9" in out and "rubble" in out and "two_fields" in out
+        assert "vs latt" in out and "vs greedy" in out
+        assert "+0.0%" in out, "the tie is the wheat demo's headline"
+
+    @pytest.mark.parametrize("demo", [cane_demo, cactus_demo, wheat_demo])
     def test_main_runs_end_to_end(self, demo, capsys):
         demo.main()
         assert "efficiency" in capsys.readouterr().out

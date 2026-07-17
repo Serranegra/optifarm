@@ -13,7 +13,7 @@ from itertools import combinations
 
 import pytest
 
-from mcfarm_opt import BlockType, FarmLayout
+from mcfarm_opt import BlockType, FarmLayout, Neighborhood
 
 ORTHOGONAL_STEPS = ((-1, 0), (1, 0), (0, -1), (0, 1))
 
@@ -70,6 +70,37 @@ def brute_force_sugarcane_optimum(text: str, *, max_free: int = 16) -> int:
     return best
 
 
+def brute_force_wheat_optimum(text: str, *, max_free: int = 14) -> int:
+    """Return the true maximum wheat count, by exhaustive enumeration.
+
+    Tries every subset of the free cells as the water set. A cell yields wheat
+    iff it is free, not water, and some water lies within Chebyshev distance 4 --
+    the 9x9 hydration square.
+
+    The cap is tighter than the other oracles because wheat's interesting cases
+    start at 81 free cells and ``2**81`` is not a number. This oracle only
+    reaches 1xN strips and toy grids; the real independent check on wheat is the
+    closed form ``m*n - ceil(m/9)*ceil(n/9)`` in ``test_wheat.py``, which needs
+    no enumeration at all.
+
+    Raises:
+        ValueError: if the terrain has more than ``max_free`` free cells.
+    """
+    free = _check_size(text, max_free)
+    free_set = set(free)
+    best = 0
+    for size in range(len(free) + 1):
+        for water in combinations(free, size):
+            water_set = set(water)
+            count = sum(
+                1
+                for (r, c) in free_set - water_set
+                if any(max(abs(r - wr), abs(c - wc)) <= 4 for (wr, wc) in water_set)
+            )
+            best = max(best, count)
+    return best
+
+
 def brute_force_cactus_optimum(text: str, *, max_free: int = 16) -> int:
     """Return the true maximum cactus count, by exhaustive enumeration.
 
@@ -120,6 +151,36 @@ def assert_valid_sugarcane(layout: FarmLayout) -> None:
             neighbors = grid.neighbors(cell)
             assert any(layout.block_at(n) is BlockType.WATER for n in neighbors), (
                 f"cane at {cell} has no orthogonally adjacent water"
+            )
+
+    metrics = layout.metrics
+    assert metrics.n_crop == len(layout.cells_with(BlockType.CROP))
+    assert metrics.n_support == len(layout.cells_with(BlockType.WATER))
+    assert metrics.n_obstacle == len(layout.cells_with(BlockType.OBSTACLE))
+    assert metrics.n_cells == len(grid)
+
+
+def assert_valid_wheat(layout: FarmLayout) -> None:
+    """Assert the layout obeys every wheat rule.
+
+    Same shape as the sugarcane validator, with the reach turned up: water must
+    lie within Chebyshev distance 4 (the 9x9 square) rather than orthogonally
+    adjacent. Nothing blocks hydration -- Minecraft checks distance, not line of
+    sight -- so an obstacle in between is not consulted.
+    """
+    grid = layout.grid
+    for cell in grid.cells():
+        block = layout.block_at(cell)
+
+        if grid.is_obstacle(cell):
+            assert block is BlockType.OBSTACLE, f"obstacle at {cell} was overwritten with {block}"
+            continue
+        assert block is not BlockType.OBSTACLE, f"free cell {cell} was turned into an obstacle"
+
+        if block is BlockType.CROP:
+            in_range = grid.neighbors(cell, Neighborhood.DIAGONAL, 4)
+            assert any(layout.block_at(n) is BlockType.WATER for n in in_range), (
+                f"wheat at {cell} has no water within 4 blocks"
             )
 
     metrics = layout.metrics

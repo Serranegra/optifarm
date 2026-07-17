@@ -47,6 +47,7 @@ from mcfarm_opt.crops.base import (
 )
 from mcfarm_opt.crops.cactus import Cactus
 from mcfarm_opt.crops.sugarcane import Sugarcane
+from mcfarm_opt.crops.wheat import Wheat
 from mcfarm_opt.io.text import parse_grid, render_grid, render_layout
 from mcfarm_opt.solvers.base import Solver
 from mcfarm_opt.solvers.ilp import ILPSolver
@@ -68,6 +69,7 @@ __all__ = [
     "SolveStatus",
     "Solver",
     "Sugarcane",
+    "Wheat",
     "optimize",
     "parse_grid",
     "render_grid",

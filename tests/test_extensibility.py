@@ -6,12 +6,17 @@ define throwaway crops covering the shapes named in the design, and assert the
 existing machinery solves them.
 
 The crops here are test fixtures, not shipped features: they exercise the
-interface, they are not the real wheat/mushroom models. Negative adjacency has
-graduated out of this file -- :class:`~mcfarm_opt.crops.cactus.Cactus` ships and
-is tested in ``test_cactus.py``, so the fixture that used to stand in for it is
-gone rather than left here modelling the rule a second, contradictory way.
-``FakeCombo`` below still exercises a negative requirement from a user-defined
-crop, which is what this file is here to prove.
+interface rather than modelling anything real.
+
+Two rules have graduated out of this file. Negative adjacency belongs to
+:class:`~mcfarm_opt.crops.cactus.Cactus` and radius adjacency to
+:class:`~mcfarm_opt.crops.wheat.Wheat`; both ship, both are tested in their own
+files, so the fixtures that used to stand in for them are gone rather than left
+here restating the same rule a second time. What remains is deliberately what no
+shipped crop does: a reach nothing in Minecraft uses, conjunctive requirements,
+and a hand-written global constraint. If a fixture here ever becomes a copy of a
+shipped crop, delete it -- a duplicate model is a model that can disagree with
+itself.
 """
 
 from __future__ import annotations
@@ -34,12 +39,18 @@ from mcfarm_opt import (
 )
 
 
-class FakeWheat(AdjacencyCropRule):
-    """RADIUS adjacency: wheat wants water within 4 cells, diagonals included."""
+class FarReachingCrop(AdjacencyCropRule):
+    """RADIUS adjacency, at a reach no shipped crop uses.
+
+    Water within 7 in every direction -- a 15x15 hydration square. Nothing in
+    Minecraft works this way; the point is that the radius is a *parameter*, so
+    a crop can pick any reach without the core knowing. Wheat's real radius-4
+    rule ships in ``crops/wheat.py`` and is tested in ``test_wheat.py``.
+    """
 
     @property
     def name(self) -> str:
-        return "fake-wheat"
+        return "far-reaching"
 
     def support_blocks(self) -> frozenset[BlockType]:
         return frozenset({BlockType.WATER})
@@ -49,7 +60,7 @@ class FakeWheat(AdjacencyCropRule):
             AdjacencyRequirement(
                 blocks=frozenset({BlockType.WATER}),
                 neighborhood=Neighborhood.DIAGONAL,
-                radius=4,
+                radius=7,
                 minimum=1,
             ),
         )
@@ -100,25 +111,28 @@ class HandWrittenCrop:
 
 
 class TestRadiusAdjacency:
-    def test_one_water_hydrates_the_whole_9x9(self):
-        """A 9x9 with water at the centre: 80 wheat off a single water block."""
-        layout = optimize("\n".join(["." * 9] * 9), crop=FakeWheat())
-        assert layout.metrics.n_crop == 80
+    """The radius is a parameter, and a user-defined crop can set it freely."""
+
+    def test_one_water_covers_the_whole_15x15(self):
+        """Radius 7 means a 15x15 square: one source, 224 crops."""
+        layout = optimize("\n".join(["." * 15] * 15), crop=FarReachingCrop())
+        assert layout.metrics.n_crop == 224
         assert layout.metrics.n_support == 1
         assert layout.metrics.is_optimal
 
     def test_range_is_finite(self):
-        """An 11x11 needs a second water: the corners sit outside any single 9x9."""
-        layout = optimize("\n".join(["." * 11] * 11), crop=FakeWheat())
+        """A 17x17 needs more: its corners sit outside any single 15x15."""
+        layout = optimize("\n".join(["." * 17] * 17), crop=FarReachingCrop())
         assert layout.metrics.n_support >= 2
 
-    def test_wheat_reaches_further_than_sugarcane(self, rectangle):
-        from mcfarm_opt import Sugarcane
+    def test_a_longer_reach_beats_a_shorter_one(self, rectangle):
+        """Radius 7 against wheat's shipped radius 4, on the same ground."""
+        from mcfarm_opt import Wheat
 
-        terrain = rectangle(9, 9)
+        terrain = rectangle(15, 15)
         assert (
-            optimize(terrain, crop=FakeWheat()).metrics.n_crop
-            > optimize(terrain, crop=Sugarcane()).metrics.n_crop
+            optimize(terrain, crop=FarReachingCrop()).metrics.n_crop
+            > optimize(terrain, crop=Wheat()).metrics.n_crop
         )
 
 
@@ -140,11 +154,12 @@ class TestRawInterface:
 
     def test_protocol_is_satisfied_structurally(self):
         """Shipped crops and user-defined ones satisfy the same protocol."""
-        from mcfarm_opt import Cactus, Sugarcane
+        from mcfarm_opt import Cactus, Sugarcane, Wheat
 
         assert isinstance(Sugarcane(), CropRule)
         assert isinstance(Cactus(), CropRule)
-        assert isinstance(FakeWheat(), CropRule)
+        assert isinstance(Wheat(), CropRule)
+        assert isinstance(FarReachingCrop(), CropRule)
         assert isinstance(HandWrittenCrop(), CropRule)
 
 
@@ -166,11 +181,11 @@ class TestRequirementValidation:
             AdjacencyRequirement(frozenset({BlockType.WATER}), minimum=3, maximum=1)
 
     def test_counting_a_block_the_crop_never_places_is_zero_not_an_error(self):
-        """FakeWheat never places sand, so 'sand nearby' is vacuously zero.
+        """FarReachingCrop never places sand, so 'sand nearby' is vacuously zero.
 
-        Every cell of a 2x3 is within radius 4 of every other, so the only cost
-        is the one water block the rule insists on: 5 wheat, not 6.
+        Every cell of a 2x3 is within radius 7 of every other, so the only cost
+        is the one water block the rule insists on: 5 crops, not 6.
         """
-        layout = optimize("...\n...", crop=FakeWheat())
+        layout = optimize("...\n...", crop=FarReachingCrop())
         assert layout.metrics.n_crop == 5
         assert layout.metrics.n_support == 1

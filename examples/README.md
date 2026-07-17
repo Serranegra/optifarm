@@ -4,8 +4,9 @@ The optifarm playground. Nothing here is imported by the library — these are
 files to run, read and edit.
 
 ```bash
-python examples/demo_sugarcane.py     # hand patterns lose. use the solver.
-python examples/demo_cactus.py        # hand pattern already wins. mostly don't.
+python examples/demo_sugarcane.py     # +4-7% over a thinking player. worth it.
+python examples/demo_cactus.py        # +2.9% at best. barely.
+python examples/demo_wheat.py         # +0.0% on 6 of 7 maps. don't bother.
 ```
 
 Both run with no arguments. Each shows the input terrain, the layouts people
@@ -34,6 +35,9 @@ is to teach one:
 - **`demo_cactus.py`** — the hand checkerboard *is* the optimum on open ground,
   and a player who just plants greedily ties the optimum on 4 of 5 terrains. The
   solver's best win over them is **+2.9%**. Don't bother.
+- **`demo_wheat.py`** — water hydrates 80 cells and costs one, so wheat is a
+  covering problem, and a source every nine blocks solves it *exactly*. The solver
+  wins **+0.0%** on six of seven terrains. Really don't bother.
 
 One parameterised file tells both badly: cactus's headline `+0.0%` reads as a
 failure inside a narrative built around "the solver wins big". Each demo now
@@ -57,6 +61,8 @@ badly-aligned pattern would inflate optifarm's win for free.
 | Sugarcane | Greedy water | **Little.** No pattern — just dig the cell that buys the most cane. Beats both patterns; within 4–7% of optimal. |
 | Cactus | Checkerboard | Only its *globality*: it must pick one colour of the board for the whole map, and walls make that wrong locally. Optimal on open ground. |
 | Cactus | Greedy sweep | **Almost nothing.** Ties the optimum on 4 of 5 terrains. |
+| Wheat | 9-lattice | **Nothing, on open ground** — it is the proven optimum. Only rubble, where there is no spacing to lock onto, beats it (by 2.7%). |
+| Wheat | Greedy water | **Nothing on 6 of 7 maps.** Loses 0.9% on rubble. |
 
 ### Pick a real opponent
 
@@ -91,18 +97,37 @@ This matters more than it sounds:
   only empty because the prune found it had **no adjacent water** — which is
   precisely what planting cane there would require. The condition that creates a
   hole is the negation of the one that could fill it.
+- **Wheat**: the fill has two shapes, because a dry cell cannot just be planted —
+  it needs a *source*, which costs a cell of its own. So the repair both **digs
+  where it is dry** and **pulls sources that are redundant**. On `two_fields` a
+  raw 9-lattice scores 252 because its sources land inside a wall; repaired, it
+  scores the optimal 320. Skipping that would have let the demo advertise +27%.
 
 `tests/test_demo.py` checks every baseline is a *legal* layout under its own
 crop's rule — using the same validators that check the solver's own output — and
 separately that every baseline is **maximal**, so neither demo can regress into
 flattering its own optimiser.
 
+## The terrains
+
+`_shared.py` holds five, and all three demos solve them, which is what makes the
+crops comparable on identical ground: the same 9×9 grows 41 cactus, 61 sugarcane
+and 80 wheat.
+
+`demo_wheat.py` adds two of its own. Wheat reaches nine blocks, so most of the
+shared terrains fit inside a *single water source* and every strategy ties without
+having to think. That tie is most of wheat's argument, so the terrains stay — but a
+table of nothing but zeros proves nothing about the hard cases, so `two_fields`
+(20×20, walls where the lattice wants its sources) and `rubble` (35% obstacles, no
+spacing to lock onto) are sized for the crop. They are wheat-only because sugarcane
+cannot prove a 20×20 in any reasonable time, while wheat proves both in under a
+second.
+
 ## Coming later
 
 - **`benchmark.py`** — how proving time scales, and where the exact solver should
   give way to a heuristic. The curve is already visible for sugarcane: 9×9 in
-  0.07s, 12×12 in 0.9s, 15×15 in 12s, and an 18×18 does not close in 30s. Cactus
-  is the control group — bipartite maximum independent set, so a 40×40 proves in
-  0.34s and the curve is flat.
-- **`wheat.py`** — once a `WheatRule` exists. Its radius-4 hydration is the third
-  shape of adjacency rule, and the one no current demo shows.
+  0.07s, 12×12 in 0.9s, 15×15 in 12s, and an 18×18 does not close in 30s. The
+  other two are control groups — cactus is bipartite maximum independent set and
+  wheat is a covering problem on a lattice, so both prove a 40×40 in about a
+  second and their curves are flat.

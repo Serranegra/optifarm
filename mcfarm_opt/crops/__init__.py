@@ -17,6 +17,7 @@ from mcfarm_opt.crops.base import (
 )
 from mcfarm_opt.crops.cactus import Cactus
 from mcfarm_opt.crops.sugarcane import Sugarcane
+from mcfarm_opt.crops.wheat import Wheat
 
 __all__ = [
     "AdjacencyCropRule",
@@ -25,4 +26,5 @@ __all__ = [
     "CropRule",
     "ObjectiveTerm",
     "Sugarcane",
+    "Wheat",
 ]
