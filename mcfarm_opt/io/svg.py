@@ -25,7 +25,14 @@ from mcfarm_opt.core.blocks import BlockType
 from mcfarm_opt.core.grid import Cell
 from mcfarm_opt.core.result import FarmLayout
 
-__all__ = ["BlockStyle", "PALETTE", "render_layout_svg"]
+__all__ = [
+    "CACTUS_PALETTE",
+    "PALETTE",
+    "WHEAT_PALETTE",
+    "BlockStyle",
+    "dressed_for",
+    "render_layout_svg",
+]
 
 BACKGROUND = "#101828"
 """The dark slate the whole image sits on. Straight from the logo."""
@@ -67,6 +74,80 @@ PALETTE: dict[BlockType, BlockStyle] = {
     BlockType.SAND: BlockStyle(fill="#e0c068", highlight="#f5e6b3", shadow="#a08040"),
     BlockType.FARMLAND: BlockStyle(fill="#6b4423", highlight="#8b5a2b", shadow="#4a2f18"),
 }
+
+
+def dressed_for(*, crop: BlockStyle, ground: BlockStyle) -> dict[BlockType, BlockStyle]:
+    """The house palette with the two entries a crop is allowed to repaint.
+
+    The house style is one crop's: :data:`PALETTE` was drawn from a *sugarcane*
+    logo, where green means cane and a bare cell means nothing much. Another crop
+    is a different plant standing on different ground, and that is the whole of
+    the difference -- so a crop palette overrides exactly two entries and
+    inherits the rest. The cell size, the border ratio, the seams, the
+    background, the water and the obstacle colour stay where the logo put them,
+    which is what keeps every picture in the README the same picture.
+
+    ``ground`` is :attr:`~mcfarm_opt.core.blocks.BlockType.EMPTY`, and it means
+    something sharper here than it does by default. In :data:`PALETTE`, EMPTY is
+    "ground the layout declined to use" and is drawn quiet, near the background.
+    In a crop palette it is the material the farm is built on, showing through
+    where nothing was planted -- sand for cactus, farmland for wheat. That is the
+    same projection argument the crop rules make: the block a crop stands on sits
+    *under* it, inside the cell, never beside it, so the bare cells are the only
+    place you ever see it. Being a real material, it is allowed to be a colour.
+
+    Args:
+        crop: how this crop's own block is drawn.
+        ground: what a planted-nothing cell shows.
+
+    Returns:
+        A palette covering every block type, safe to pass to
+        :func:`render_layout_svg`.
+    """
+    return {**PALETTE, BlockType.CROP: crop, BlockType.EMPTY: ground}
+
+
+CACTUS_PALETTE: dict[BlockType, BlockStyle] = dressed_for(
+    # Cactus, not cane: a darker, mossier green, so the two never read as the
+    # same plant in a README that shows both. Same stepped border as ``cane-px``,
+    # two tones either side of the base -- the logo's block in another colour,
+    # not another block.
+    crop=BlockStyle(fill="#166534", highlight="#16a34a", shadow="#052e16"),
+    # Sand. Flat and merged, exactly like water and for the same reason: a
+    # stretch of sand is a body, not a set of tiles.
+    ground=BlockStyle(fill="#d4a76a", merge=True),
+)
+"""The house palette, dressed for a cactus farm: dark green on sand.
+
+Example:
+    >>> from mcfarm_opt import Cactus, optimize
+    >>> svg = render_layout_svg(optimize("...", crop=Cactus()), palette=CACTUS_PALETTE)
+    >>> "#166534" in svg
+    True
+"""
+
+WHEAT_PALETTE: dict[BlockType, BlockStyle] = dressed_for(
+    # Ripe wheat: amber, the one warm crop colour that cannot be mistaken for
+    # either green. Same stepped border, same two-tones-either-side rule.
+    crop=BlockStyle(fill="#f59e0b", highlight="#fcd34d", shadow="#b45309"),
+    # Tilled farmland, and the same brown :data:`PALETTE` already reserves for
+    # it -- one brown in the project, not two. Flat and merged like the sand and
+    # the water: a worked field is a surface, not a grid of tiles.
+    ground=BlockStyle(fill=PALETTE[BlockType.FARMLAND].fill, merge=True),
+)
+"""The house palette, dressed for a wheat farm: amber on farmland.
+
+Water keeps the logo's blue here, and that matters more for wheat than for any
+other crop: wheat's whole result is *how few sources cover the field*, so the
+blue blocks are the thing to count. On ``rubble`` the hand lattice needs six and
+the optimum needs four, and the picture says so without a caption.
+
+Example:
+    >>> from mcfarm_opt import Wheat, optimize
+    >>> svg = render_layout_svg(optimize("...", crop=Wheat()), palette=WHEAT_PALETTE)
+    >>> "#f59e0b" in svg
+    True
+"""
 
 CELL = 76
 """Side of one block, in SVG units. The logo's, so the styles line up."""

@@ -9,7 +9,14 @@ Note:
 
 from __future__ import annotations
 
-from mcfarm_opt.io.svg import PALETTE, BlockStyle, render_layout_svg
+from mcfarm_opt.io.svg import (
+    CACTUS_PALETTE,
+    PALETTE,
+    WHEAT_PALETTE,
+    BlockStyle,
+    dressed_for,
+    render_layout_svg,
+)
 from mcfarm_opt.io.text import (
     FREE_SYMBOL,
     OBSTACLE_SYMBOL,
@@ -19,10 +26,13 @@ from mcfarm_opt.io.text import (
 )
 
 __all__ = [
+    "CACTUS_PALETTE",
     "FREE_SYMBOL",
     "OBSTACLE_SYMBOL",
     "PALETTE",
+    "WHEAT_PALETTE",
     "BlockStyle",
+    "dressed_for",
     "parse_grid",
     "render_grid",
     "render_layout",

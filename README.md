@@ -15,10 +15,17 @@ core. Adding the next crop is a new rule file and nothing else.
 
 ## Results
 
-Sugarcane on an 11×11 with rock scattered through it. Both layouts are legal, and
-both come straight out of `examples/generate_readme_images.py` — nothing here is
-posed. The field is 11 wide on purpose: the 1×2 pattern has period 3, so this is a
-width where it tiles cleanly and gets a fair fight.
+Three crops, and they disagree about whether this library is worth running — the
+first says yes, the other two say no, and all three are drawn to the same scale in
+the same style so the disagreement is visible rather than asserted. Every layout
+below is legal and comes straight out of `examples/generate_readme_images.py`:
+nothing here is posed, including the pictures that make optifarm look useless.
+
+### Sugarcane, where the solver earns its keep
+
+Sugarcane on an 11×11 with rock scattered through it. The field is 11 wide on
+purpose: the 1×2 pattern has period 3, so this is a width where it tiles cleanly
+and gets a fair fight.
 
 | Traditional 1×2 pattern | optifarm optimal |
 |---|---|
@@ -45,6 +52,100 @@ water that pays best reaches 70.5% on that same rocky map — and against *them*
 solver's real margin is **+6.3%**. Both numbers are true; the second is the honest
 one, and [the rest of this README](#what-the-comparison-shows) is written around it
 rather than around the headline.
+
+### Cactus, where it does not
+
+Same core, same solver, one rule changed — and the answer inverts. Cactus forbids
+neighbours instead of needing them, so the best layout is a checkerboard, and the
+checkerboard is already what everybody builds. On open ground the solver does not
+beat it, tie it, or come close to it. It returns it:
+
+| Checkerboard by hand | optifarm optimal |
+|---|---|
+| <img src="assets/results/cactus_rectangle_9x9_checkerboard.png" width="340" alt="hand-stamped cactus checkerboard on open ground"> | <img src="assets/results/cactus_rectangle_9x9_optimal.png" width="340" alt="optifarm optimal cactus layout on open ground, identical to the checkerboard"> |
+| 41 cactus · **50.6%** of usable ground | 41 cactus · **50.6%** |
+
+Those two images are the same file. Not similar — **byte-identical**, and neither
+was drawn by hand: one is `baseline_checkerboard` stamping a pattern, the other is
+CP-SAT proving that nothing better than 41 exists on 81 open cells. They agree
+because on open ground the checkerboard *is* the maximum independent set, and on
+an odd-by-odd field it is the only one, so there is nothing else for the solver to
+return. This is the picture of a **+0.0%**: the search was real, and it found what
+you already had.
+
+Rock is the only thing that pulls them apart, and not by much. Here is a 14×10
+with 19 rocks scattered through it — 13.3% of the field:
+
+| Checkerboard by hand | optifarm optimal |
+|---|---|
+| <img src="assets/results/cactus_ragged_14x10_checkerboard.png" width="340" alt="hand-stamped cactus checkerboard on a rocky 14x10 field"> | <img src="assets/results/cactus_ragged_14x10_optimal.png" width="340" alt="optifarm optimal cactus layout on the same rocky 14x10 field, one cactus better"> |
+| 39 cactus · **32.2%** of usable ground | 40 cactus · **33.1%** |
+
+Play spot-the-difference. There is one, and it is **one cactus** — +2.6%, on 121
+free cells. Eleven cells are placed differently and ten of them cancel out: the
+left five columns are identical block for block, because the scatter dropped only
+2 of its 19 rocks there and a checkerboard with no rock on it is already optimal.
+All the rearranging happens on the right, where the other 17 fell, and the whole
+proof buys a single plant.
+
+**Watch the percentage, because it is the thing that lies here.** The cactus demo
+further down reports **+14.3%** on its `ragged` map, which reads like the exception
+that saves the crop. It is not: `ragged` is 30 cells, and one cactus *is* 14% of
+the answer there. Scale the field at the same rock density and the margin does not
+grow — it settles near +2.6% and stays, because the crop count grows just as fast
+as the margin does. Across 60 seeded scatters: 30 cells → median 0 cacti, 140 → 1,
+280 → 4, 560 → 10, and the percentage flat near +2.6% the whole way. On 25 of those
+60 draws the solver won **nothing at all**. More rock does not save it either — the
+margin peaks near this density and falls back to zero at 5% (too few rocks to make
+the parity choice hurt) and at 40% (so much rock that both layouts starve alike).
+
+This field is seed 10 of those 60, and it is here because its margin is the
+**median** of them, picked by that rule before the picture was drawn. The first
+draw taken, seed 0, scored +7.9% and looked like a much better advertisement until
+the other 59 showed it sitting in the top 15%. The spread runs +0.0% to +18.9%; any
+single draw is luck, and the honest one to print is the middle.
+
+### Wheat, where there was never a problem to solve
+
+One rule changed again — water within 4 in *every* direction instead of 1 — and the
+economics invert a second time. A water block still costs one cell, but now it
+feeds eighty, so water stops being a trade and becomes nearly free. Here is that
+rule on the **same rocky 11×11 the sugarcane pictures use** at the top of this
+section, where cane managed 75.0%:
+
+| 9-lattice by hand | optifarm optimal |
+|---|---|
+| <img src="assets/results/wheat_with_obstacles_lattice.png" width="340" alt="hand-built 9-lattice wheat farm on rocky terrain: four water sources at the corners"> | <img src="assets/results/wheat_with_obstacles_optimal.png" width="340" alt="optifarm optimal wheat layout on the same rocky terrain: four water sources placed differently, same score"> |
+| 108 wheat · **96.4%** of usable ground | 108 wheat · **96.4%** |
+
+These two are *not* the same file, and that is the more interesting kind of tie.
+Both dig four sources; the pattern anchors them near the corners, the solver
+scatters them; six cells differ — and the two layouts are worth **exactly the
+same**. Neither found something the other missed, because there was nothing to
+find: the field needs four sources, four sources is what covers it, and past that
+the arrangement is free. **+0.0%**, from two answers that do not even look alike.
+
+Wheat's one win is `rubble`, a 16×12 that is 35% rock, built by the wheat demo
+specifically to leave no spacing a lattice can follow. This is optifarm at its best
+against this pattern, on the terrain chosen to break it:
+
+| 9-lattice by hand | optifarm optimal |
+|---|---|
+| <img src="assets/results/wheat_rubble_lattice.png" width="260" alt="hand-built 9-lattice on rubble: six water sources and a dry cell"> | <img src="assets/results/wheat_rubble_optimal.png" width="260" alt="optifarm optimal wheat layout on rubble: four water sources, no dry cell"> |
+| 113 wheat · **94.2%** of usable ground | 116 wheat · **96.7%** |
+
+Count the blue. The pattern digs **six** sources; the optimum needs **four**, and
+the whole +2.7% is that arithmetic: two of the three extra wheat are simply the two
+cells it did not flood, and the third is the one square the lattice left dry — the
+brown block near the top-left corner, out of reach of every source it placed.
+
+And then the same caveat the sugarcane section carries, because it applies here
+hardest of all: the lattice is not the best a person does. A player who ignores
+patterns and digs wherever the field is driest gets **115** on this same rubble —
+so the exact solver, on the map built to be hostile, beats a thinking player by
+**one wheat in 120**. Everywhere else it beats them by none. Wheat is not an
+optimisation problem; it is a covering problem, water is nearly free, and people
+solved it years ago without us.
 
 ## Quick start
 
@@ -150,10 +251,13 @@ Now run `demo_cactus.py` on the same land, and it says the opposite:
 ```
 
 **+0.0%.** For cactus on open ground the checkerboard people already build *is*
-the optimum, and the solver only confirms it. Worse: a player with no pattern at
-all — sweeping the field, planting wherever it is legal — ties the optimum on four
-of the five terrains. The exact solver's best win over that player is **+4.9%, on
-one map**.
+the optimum, and the solver only confirms it — that is the pair of identical
+pictures [in the Results section](#cactus-where-it-does-not) above. Worse: a
+player with no pattern at all — sweeping the field, planting wherever it is legal
+— ties the optimum on four of the five terrains. The exact solver's best win over
+that player is **+4.9%, on one map**. (And read `ragged`'s +14.3% as the 30-cell
+field it is: on a field big enough for a percentage to mean anything, that margin
+is +2.6%.)
 
 And wheat, the third, closes the case:
 
@@ -235,9 +339,12 @@ choosing a template as your opponent.
 **And then cactus says the opposite, which matters more.** Cactus forbids
 neighbours rather than needing them, so the best layout is a checkerboard — and
 that is already what people build. The solver ties it at +0.0% on every regular
-terrain. It pulls ahead only where obstacles turn irregular (`ragged`, +14.3%),
-because a checkerboard has to commit to one colour of the board *globally* while
-obstacles make that choice wrong *locally*.
+terrain. It pulls ahead only where obstacles turn irregular, because a
+checkerboard has to commit to one colour of the board *globally* while obstacles
+make that choice wrong *locally* — and even that is worth less than the table
+makes it look. `ragged`'s **+14.3%** is one cactus on a 30-cell field. Run the
+same rock density on a field big enough for a percentage to mean anything and the
+margin settles at **+2.6%**, where it stays no matter how large the field gets.
 
 **And a player who uses no pattern beats the pattern.** Sweeping the field and
 planting wherever it is legal commits to nothing, so it adapts to walls that a
@@ -263,9 +370,13 @@ worth stating plainly:
 - Wheat's 9-lattice scores 252 on `two_fields` if you stamp it and walk away, and
   320 — the proven optimum — if you repair it the way anyone standing in the field
   would. The unrepaired version would have advertised +27%.
+- Cactus's one surviving win, `ragged`'s +14.3%, turned out to be a fact about
+  `ragged` being 30 cells. At the same rock density on 140, the median margin is
+  +2.6% — one cactus — and it stays near +2.6% at 280 and 560 too.
 
 None of those were rounding errors; each was the measurement flattering the thing
-being measured. A comparison is worth exactly as much as the opponent it picks.
+being measured. A comparison is worth exactly as much as the opponent it picks —
+and a percentage is worth exactly as much as the field it was measured on.
 
 See [`examples/README.md`](examples/README.md) for why the demos are split per
 crop rather than sharing a `CROP` switch.

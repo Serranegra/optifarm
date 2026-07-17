@@ -23,8 +23,15 @@ from pathlib import Path
 
 import pytest
 
-from mcfarm_opt import BlockType, Sugarcane, optimize, render_layout_svg
-from mcfarm_opt.io.svg import BACKGROUND, PALETTE, BlockStyle
+from mcfarm_opt import BlockType, Cactus, Sugarcane, Wheat, optimize, render_layout_svg
+from mcfarm_opt.io.svg import (
+    BACKGROUND,
+    CACTUS_PALETTE,
+    PALETTE,
+    WHEAT_PALETTE,
+    BlockStyle,
+    dressed_for,
+)
 
 LOGO = Path(__file__).resolve().parent.parent / "assets" / "logo.svg"
 
@@ -188,8 +195,6 @@ class TestGeometry:
 class TestPalette:
     def test_every_block_a_shipped_crop_can_place_has_a_style(self):
         """A layout that renders as a KeyError would be worse than ugly."""
-        from mcfarm_opt import Cactus, Wheat
-
         for crop in (Sugarcane(), Cactus(), Wheat()):
             for block in crop.block_types() | {BlockType.EMPTY, BlockType.OBSTACLE}:
                 assert block in PALETTE, f"{crop.name} can place {block.name}"
@@ -230,6 +235,132 @@ class TestPalette:
         holed = {b: s for b, s in PALETTE.items() if b is not BlockType.CROP}
         with pytest.raises(ValueError, match="no style for CROP"):
             render_layout_svg(optimize(rectangle(3, 3), crop=Sugarcane()), palette=holed)
+
+
+class TestCactusPalette:
+    """The two-entry override the README's cactus picture is drawn with.
+
+    Everything it does *not* change is the point -- it borrows the logo's block
+    size, border, seams and background, and only answers the two questions a
+    cactus farm answers differently: what the crop is, and what the bare ground
+    is.
+    """
+
+    def test_it_changes_the_crop_and_the_ground_and_nothing_else(self):
+        """A drifting override would quietly fork the house style in two."""
+        differs = {b for b in BlockType if CACTUS_PALETTE[b] != PALETTE[b]}
+        assert differs == {BlockType.CROP, BlockType.EMPTY}
+
+    def test_the_whole_enum_is_covered(self):
+        assert set(CACTUS_PALETTE) == set(BlockType)
+
+    def test_cactus_is_not_the_same_green_as_cane(self):
+        """The README shows both crops. Two plants, two colours, or the pictures
+        are telling the reader they are the same thing."""
+        assert CACTUS_PALETTE[BlockType.CROP].fill != PALETTE[BlockType.CROP].fill
+
+    def test_cactus_keeps_the_logo_s_stepped_border(self):
+        """Darker green, same block. It is ``cane-px`` recoloured, not redrawn."""
+        cactus = CACTUS_PALETTE[BlockType.CROP]
+        assert cactus.highlight is not None and cactus.shadow is not None
+        assert not cactus.merge
+
+    def test_sand_is_flat_and_merged_like_water(self):
+        """A stretch of sand is a body, not a set of tiles -- water's argument,
+        and the reason sand gets water's treatment rather than cane's."""
+        sand = CACTUS_PALETTE[BlockType.EMPTY]
+        assert sand.highlight is None and sand.shadow is None
+        assert sand.merge
+
+    def test_a_cactus_layout_draws_no_cane(self):
+        svg = render_layout_svg(optimize("...\n...\n...", crop=Cactus()), palette=CACTUS_PALETTE)
+        assert CACTUS_PALETTE[BlockType.CROP].fill in svg
+        assert PALETTE[BlockType.CROP].fill not in svg
+
+    def test_sand_merges_across_the_seam_when_it_runs(self):
+        """Checked on the one layout where a run of sand is forced.
+
+        A checkerboard never puts two sand cells side by side -- they only meet
+        at the corners -- so the merge cannot fire in the README's picture. A
+        walled corridor can: every free cell touches a wall, so cactus grows
+        nothing and the whole floor is bare. There is no choice in that layout,
+        which is what makes it safe to assert on the rects.
+        """
+        layout = optimize("#####\n#...#\n#####", crop=Cactus())
+        assert layout.render() == "#####\n#...#\n#####", "a corridor grows no cactus"
+
+        svg = render_layout_svg(layout, palette=CACTUS_PALETTE)
+        root = ET.fromstring(svg)
+        sand = [r for r in root if r.get("fill") == CACTUS_PALETTE[BlockType.EMPTY].fill]
+        assert len(sand) == 3
+        # the first two grow over the 3-unit seam into the next; the last has no
+        # sand to its right, so it stops at the block.
+        assert [r.get("width") for r in sand] == ["79", "79", "76"]
+
+
+class TestWheatPalette:
+    """The other dress of the house style, and the one the pictures lean on most."""
+
+    def test_it_changes_the_crop_and_the_ground_and_nothing_else(self):
+        differs = {b for b in BlockType if WHEAT_PALETTE[b] != PALETTE[b]}
+        assert differs == {BlockType.CROP, BlockType.EMPTY}
+
+    def test_the_three_crops_are_three_colours(self):
+        """Cane, cactus and wheat all appear in the README. If any two shared a
+        fill the reader would be told they are the same plant."""
+        fills = {
+            PALETTE[BlockType.CROP].fill,
+            CACTUS_PALETTE[BlockType.CROP].fill,
+            WHEAT_PALETTE[BlockType.CROP].fill,
+        }
+        assert len(fills) == 3
+
+    def test_wheat_keeps_the_logo_s_water(self):
+        """Load-bearing for the README's rubble pair, which asks the reader to
+        count water blocks: six for the hand lattice, four for the optimum. If
+        water ever stopped being the one flat blue thing in the picture, that
+        instruction would stop working."""
+        assert WHEAT_PALETTE[BlockType.WATER] == PALETTE[BlockType.WATER]
+        assert WHEAT_PALETTE[BlockType.WATER].merge
+
+    def test_the_ground_is_the_farmland_brown_the_project_already_has(self):
+        """One brown, not two. The palette reserves FARMLAND for the block under
+        the wheat; bare ground in a wheat farm is that same tilled dirt."""
+        assert WHEAT_PALETTE[BlockType.EMPTY].fill == PALETTE[BlockType.FARMLAND].fill
+        assert WHEAT_PALETTE[BlockType.EMPTY].merge
+        assert WHEAT_PALETTE[BlockType.EMPTY].highlight is None
+
+    def test_a_wheat_layout_draws_neither_green(self):
+        svg = render_layout_svg(optimize("...\n...\n...", crop=Wheat()), palette=WHEAT_PALETTE)
+        assert WHEAT_PALETTE[BlockType.CROP].fill in svg
+        assert PALETTE[BlockType.CROP].fill not in svg
+        assert CACTUS_PALETTE[BlockType.CROP].fill not in svg
+
+
+class TestDressedFor:
+    """The rule both crop palettes are built by: repaint two entries, inherit the rest."""
+
+    def test_it_inherits_everything_it_is_not_given(self):
+        odd = dressed_for(crop=BlockStyle(fill="#111111"), ground=BlockStyle(fill="#222222"))
+        assert set(odd) == set(BlockType)
+        for block in BlockType:
+            if block not in (BlockType.CROP, BlockType.EMPTY):
+                assert odd[block] == PALETTE[block], f"{block.name} should come from the house"
+
+    def test_it_does_not_mutate_the_house_palette(self):
+        """A dict spread copies, but this is the one bug that would silently
+        repaint every picture in the README at once."""
+        before = dict(PALETTE)
+        dressed_for(crop=BlockStyle(fill="#111111"), ground=BlockStyle(fill="#222222"))
+        assert PALETTE == before
+
+    def test_the_shipped_crop_palettes_are_built_by_it(self):
+        assert CACTUS_PALETTE == dressed_for(
+            crop=CACTUS_PALETTE[BlockType.CROP], ground=CACTUS_PALETTE[BlockType.EMPTY]
+        )
+        assert WHEAT_PALETTE == dressed_for(
+            crop=WHEAT_PALETTE[BlockType.CROP], ground=WHEAT_PALETTE[BlockType.EMPTY]
+        )
 
 
 class TestArguments:

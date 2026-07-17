@@ -23,7 +23,16 @@ from pathlib import Path
 
 import pytest
 
-from mcfarm_opt import BlockType, Cactus, Sugarcane, Wheat, optimize, parse_grid
+from mcfarm_opt import (
+    BlockType,
+    Cactus,
+    Sugarcane,
+    Wheat,
+    optimize,
+    parse_grid,
+    render_layout_svg,
+)
+from mcfarm_opt.io.svg import CACTUS_PALETTE
 
 from .conftest import (
     assert_valid_cactus,
@@ -63,6 +72,9 @@ import _shared as shared  # noqa: E402
 cane_demo = _load("demo_sugarcane")
 cactus_demo = _load("demo_cactus")
 wheat_demo = _load("demo_wheat")
+# Not a demo, but it owns a terrain and two layouts the README prints as
+# pictures, so its claims get pinned here with everything else's.
+images = _load("generate_readme_images")
 
 TERRAIN_NAMES = list(shared.TERRAINS)
 WHEAT_TERRAIN_NAMES = list(wheat_demo.TERRAINS)
@@ -392,6 +404,69 @@ class TestCactusBaselines:
         optimal = solve(shared.TERRAINS[name], Cactus())
         assert greedy.metrics.n_crop == optimal.metrics.n_crop
 
+    def test_the_tie_on_open_ground_is_literally_the_same_picture(self):
+        """What the README's cactus pair claims, pinned.
+
+        The two images beside "+0.0%" are not similar, they are the same file --
+        one rendered from ``baseline_checkerboard``, the other from CP-SAT. The
+        SVGs differ by one line, the comment naming which produced it; every
+        rect is identical, so the PNGs come out byte for byte the same.
+
+        A tie in ``n_crop`` would not be enough for that claim: two different
+        41-cactus layouts would tie and draw two different pictures. This asserts
+        the stronger thing the README shows -- on a 9x9 the maximum independent
+        set is not just size 41, it is *unique*, so the solver has nothing to
+        return but the pattern you would have stamped.
+        """
+        terrain = shared.TERRAINS["rectangle_9x9"]
+        hand = cactus_demo.baseline_checkerboard(parse_grid(terrain))
+        optimal = solve(terrain, Cactus())
+        assert hand.render() == optimal.render()
+
+        def rects(layout):
+            return [
+                line
+                for line in render_layout_svg(layout, palette=CACTUS_PALETTE).splitlines()
+                if "<rect" in line
+            ]
+
+        drawn = rects(hand)
+        assert len(drawn) > 81, "guards the assert below from passing on an empty picture"
+        assert drawn == rects(optimal)
+
+    def test_the_readme_s_rocky_14x10_is_worth_one_cactus(self):
+        """The README's cactus comparison, pinned to the picture it shows.
+
+        39 against 40 on 121 free cells: +2.6%, one plant. The point of the pair
+        is that scaling `ragged` up from 30 cells collapses its +14.3% to this,
+        so if either number moves the paragraph beside the images is wrong.
+
+        The terrain lives in the image generator rather than in TERRAINS -- it
+        illustrates the README, and no demo solves it. See the provenance note
+        on `RAGGED_14x10`: the rocks are a seeded scatter at ragged's own
+        density, and the draw is the median of sixty, chosen by rule.
+        """
+        terrain = images.RAGGED_14x10
+        grid = parse_grid(terrain)
+        assert grid.shape == (10, 14)
+        assert len(list(grid.obstacles())) == 19
+
+        hand = cactus_demo.baseline_checkerboard(grid)
+        optimal = solve(terrain, Cactus())
+        assert hand.metrics.n_crop == 39
+        assert optimal.metrics.n_crop == 40
+
+    def test_the_rocky_14x10_baselines_are_legal(self):
+        """The terrain is new, so it gets the same scrutiny the shipped ones get.
+
+        A hand pattern claiming cactus it cannot grow would flatter the pattern;
+        an optimum that broke the rule would flatter optifarm. The README prints
+        both layouts as pictures, so both had better be farms.
+        """
+        grid = parse_grid(images.RAGGED_14x10)
+        assert_valid_cactus(cactus_demo.baseline_checkerboard(grid))
+        assert_valid_cactus(solve(images.RAGGED_14x10, Cactus()))
+
     def test_the_solvers_best_win_over_a_greedy_player_is_tiny(self):
         """with_obstacles is the only terrain where the solver beats greedy at all.
 
@@ -487,6 +562,60 @@ class TestWheatBaselines:
         optimal = solve(wheat_demo.TERRAINS[name], Wheat(), time_limit=30.0)
         assert wheat_demo.baseline_lattice(grid).metrics.n_crop == optimal.metrics.n_crop
         assert wheat_demo.baseline_greedy(grid).metrics.n_crop == optimal.metrics.n_crop
+
+    def test_the_readme_s_wheat_tie_is_two_different_layouts_scoring_the_same(self):
+        """The README's wheat tie, pinned -- including the part that makes it worth showing.
+
+        The obvious terrain for this pair would be `rectangle_9x9`, and it is
+        worthless: one source hydrates the whole 9x9 and exactly one cell reaches
+        every other, so there is a single legal answer and the two *cannot*
+        disagree. `two_fields` is that same forced answer four times, one per
+        quadrant of its wall cross.
+
+        The 11x11 is a real tie. Both dig four sources, both score 108, and the
+        layouts still differ -- which is the claim the paragraph makes, so both
+        halves are asserted: same score, *not* the same picture. If they ever
+        collapsed into the same layout the pair would be illustrating the
+        degenerate case again without anyone noticing.
+        """
+        terrain = wheat_demo.TERRAINS["with_obstacles"]
+        hand = baseline(wheat_demo.baseline_lattice, parse_grid(terrain))
+        optimal = solve(terrain, Wheat())
+
+        assert hand.metrics.n_crop == optimal.metrics.n_crop == 108
+        assert hand.metrics.n_support == optimal.metrics.n_support == 4
+        assert hand.render() != optimal.render(), "the pair is pointless if they coincide"
+
+    def test_the_wheat_terrains_the_readme_rejected_are_the_degenerate_ones(self):
+        """Why `rectangle_9x9` is not the tie picture, asserted rather than asserted-in-prose.
+
+        A 9x9 takes exactly one source and there is exactly one cell that reaches
+        all of it, so the lattice and the solver return the identical layout. That
+        is a problem with one move in it, not a pattern matching a solver.
+        """
+        terrain = wheat_demo.TERRAINS["rectangle_9x9"]
+        hand = baseline(wheat_demo.baseline_lattice, parse_grid(terrain))
+        optimal = solve(terrain, Wheat())
+        assert hand.metrics.n_support == optimal.metrics.n_support == 1
+        assert hand.render() == optimal.render(), "the 9x9 has one answer, hence no lesson"
+
+    def test_the_readme_s_rubble_pair_is_six_sources_against_four(self):
+        """The README tells the reader to count the blue blocks. This is the count.
+
+        The whole +2.7% is that arithmetic: 6 sources against 4 means two cells
+        the optimum does not flood, and the third wheat is the square the lattice
+        left dry. If the water counts drift, the paragraph beside the pictures
+        stops describing them.
+        """
+        terrain = wheat_demo.TERRAINS["rubble"]
+        hand = baseline(wheat_demo.baseline_lattice, parse_grid(terrain))
+        optimal = solve(terrain, Wheat())
+
+        assert (hand.metrics.n_support, optimal.metrics.n_support) == (6, 4)
+        assert (hand.metrics.n_crop, optimal.metrics.n_crop) == (113, 116)
+        # the dry cell the lattice leaves behind, and the optimum does not
+        assert hand.metrics.n_empty == 1
+        assert optimal.metrics.n_empty == 0
 
     def test_rubble_is_the_only_terrain_where_the_solver_earns_anything(self):
         """And it earns 0.9% over a greedy player. That is the whole prize.
