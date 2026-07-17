@@ -23,7 +23,7 @@ already knew.
 It is worse than that. Give a player no pattern at all -- just let them sweep the
 field planting wherever it is legal -- and that greedy sweep **also ties the
 optimum on four of the five terrains**. Across everything here, the exact solver's
-best win over a competent player is **+2.9%, on one terrain**.
+best win over a competent player is **+4.9%, on one terrain**.
 
 So the honest lesson for cactus is: *do not run this*. Plant greedily. The solver
 is right, provably right, and almost never worth the trouble.

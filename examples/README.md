@@ -5,13 +5,13 @@ files to run, read and edit.
 
 ```bash
 python examples/demo_sugarcane.py     # +4-7% over a thinking player. worth it.
-python examples/demo_cactus.py        # +2.9% at best. barely.
+python examples/demo_cactus.py        # +4.9% at best. barely.
 python examples/demo_wheat.py         # +0.0% on 6 of 7 maps. don't bother.
 ```
 
-Both run with no arguments. Each shows the input terrain, the layouts people
+All three run with no arguments. Each shows the input terrain, the layouts people
 build by hand, the optimal layout, the metrics, and the comparison. To
-experiment, edit **one line** at the top of either file:
+experiment, edit **one line** at the top of any of them:
 
 ```python
 TERRAIN = "l_shape"      # options: see TERRAINS in _shared.py
@@ -26,15 +26,15 @@ There used to be one `demo.py` with a `CROP` knob. It was a trap: the baselines
 are hand-written patterns, not solver output, so setting `CROP = Cactus()` laid
 **water stripes on a cactus farm** and rendered the nonsense without complaint.
 
-The deeper reason is that the two demos teach opposite lessons, and a demo's job
-is to teach one:
+The deeper reason is that the demos teach opposite lessons, and a demo's job is to
+teach one:
 
-- **`demo_sugarcane.py`** — the hand patterns lose by 13–31%, but a player who
+- **`demo_sugarcane.py`** — the hand patterns lose by 13–29%, but a player who
   follows no pattern beats every pattern, and against *them* the solver wins
   **4–7%**. Worth running, for less than the headline suggests.
 - **`demo_cactus.py`** — the hand checkerboard *is* the optimum on open ground,
   and a player who just plants greedily ties the optimum on 4 of 5 terrains. The
-  solver's best win over them is **+2.9%**. Don't bother.
+  solver's best win over them is **+4.9%**. Don't bother.
 - **`demo_wheat.py`** — water hydrates 80 cells and costs one, so wheat is a
   covering problem, and a source every nine blocks solves it *exactly*. The solver
   wins **+0.0%** on six of seven terrains. Really don't bother.
@@ -44,9 +44,9 @@ failure inside a narrative built around "the solver wins big". Each demo now
 fixes its own crop, so the trap cannot be re-armed.
 
 `_shared.py` holds the terrains and the print formatting. You do not need to read
-it. The terrains live there so both demos solve the *same* land — that is what
-makes the cross-crop numbers mean anything (on `scattered`, the identical 5×5
-grows 12 sugarcane and 2 cactus).
+it. The terrains live there so every demo solves the *same* land — that is what
+makes the cross-crop numbers mean anything: the identical 9×9 grows 41 cactus, 61
+sugarcane and 80 wheat, and nothing separates those but the adjacency rule.
 
 ## The baselines
 
@@ -67,9 +67,15 @@ badly-aligned pattern would inflate optifarm's win for free.
 ### Pick a real opponent
 
 A *pattern* is not the best a person can do, so measuring only against patterns
-flatters the solver. Both demos therefore include a no-pattern player, and in both
-cases that player beats every pattern and cuts the solver's margin to single
-digits. Those are the numbers to judge this library by.
+flatters the solver. Every demo therefore includes a no-pattern player, and in each
+case that player beats or matches the patterns and cuts the solver's margin to
+single digits. Those are the numbers to judge this library by.
+
+Picking the *field* fairly matters too, and is easier to get wrong. `with_obstacles`
+is 11 wide, not 10, because the 1×2 pattern has period 3 and only tiles a width of
+1 (mod 3). At 10 the stripes fall a column short and ten tiles of good ground die
+with no rock anywhere near them — and the solver posts a 30% win that is really a
+fact about the field size. It looks like the obstacles' fault. It is not.
 
 There is no "naive sweep" baseline for sugarcane, and the reason is worth knowing:
 it degenerates. Walk the field planting cane where water already sits and digging

@@ -13,11 +13,44 @@ about everything (cane needs water *beside* it, cactus needs nothing solid besid
 it, wheat needs water *within 4 in every direction*) and share every line of the
 core. Adding the next crop is a new rule file and nothing else.
 
+## Results
+
+Sugarcane on an 11×11 with rock scattered through it. Both layouts are legal, and
+both come straight out of `examples/generate_readme_images.py` — nothing here is
+posed. The field is 11 wide on purpose: the 1×2 pattern has period 3, so this is a
+width where it tiles cleanly and gets a fair fight.
+
+| Traditional 1×2 pattern | optifarm optimal |
+|---|---|
+| <img src="assets/results/with_obstacles_1x2.png" width="340" alt="1x2 stripe pattern on rocky terrain"> | <img src="assets/results/with_obstacles_optimal.png" width="340" alt="optifarm optimal layout on rocky terrain"> |
+| 68 cane · **60.7%** of usable ground | 84 cane · **75.0%** |
+
+60.7% → **75.0%**: **+23.5% more sugarcane**, provably optimal. The stripes are
+rigid — they pay for a full column of water whether the rock beside it needed one or
+not, and two cells still end up stranded where a boulder ate the stripe that fed
+them. The optimum threads water through the gaps instead.
+
+On open ground the pattern is at its best, and the margin narrows:
+
+| Traditional 1×2 pattern | optifarm optimal |
+|---|---|
+| <img src="assets/results/rectangle_9x9_1x2.png" width="340" alt="1x2 stripe pattern on open ground"> | <img src="assets/results/rectangle_9x9_optimal.png" width="340" alt="optifarm optimal layout on open ground"> |
+| 54 cane · **66.7%** | 61 cane · **75.3%** |
+
+66.7% → **75.3%**, +13.0%.
+
+**Read that +23.5% with care.** The 1×2 stripes are what people build, but they are
+not the best a person can do. A player who follows no pattern and simply digs the
+water that pays best reaches 70.5% on that same rocky map — and against *them* the
+solver's real margin is **+6.3%**. Both numbers are true; the second is the honest
+one, and [the rest of this README](#what-the-comparison-shows) is written around it
+rather than around the headline.
+
 ## Quick start
 
 ```bash
 python examples/demo_sugarcane.py     # +4-7% over a thinking player. worth it.
-python examples/demo_cactus.py        # +2.9% at best. barely.
+python examples/demo_cactus.py        # +4.9% at best. barely.
 python examples/demo_wheat.py         # +0.0% on 6 of 7 maps. don't bother.
 ```
 
@@ -92,12 +125,12 @@ set `RUN_ALL = True` for the summary across all of them:
   --------------  ----  -------------  -------------  -------------  -------------  ----------
   rectangle_9x9     81     41 (50.6%)     54 (66.7%)     57 (70.4%)     61 (75.3%)       +7.0%
   l_shape           68     34 (50.0%)     42 (61.8%)     49 (72.1%)     51 (75.0%)       +4.1%
-  with_obstacles    92     46 (50.0%)     52 (56.5%)     64 (69.6%)     68 (73.9%)       +6.2%
+  with_obstacles   112     56 (50.0%)     68 (60.7%)     79 (70.5%)     84 (75.0%)       +6.3%
   ragged            26     13 (50.0%)     14 (53.8%)     18 (69.2%)     18 (69.2%)       +0.0%
   large_15x15      225    113 (50.2%)    150 (66.7%)    164 (72.9%)    172 (76.4%)       +4.9%
 ```
 
-Read the last column, not the pattern columns. Beating the 1×2 stripes by 13–31%
+Read the last column, not the pattern columns. Beating the 1×2 stripes by 13–29%
 sounds impressive and is mostly a fact about stripes. **Greedy water** is a player
 following no pattern at all, just digging whichever cell buys the most cane — they
 beat every pattern here, and against them the exact optimum is worth **4–7%**.
@@ -111,7 +144,7 @@ Now run `demo_cactus.py` on the same land, and it says the opposite:
   ----------------  -----  --------------  --------------  --------------  ---------  ----------
   rectangle_9x9        81      41 (50.6%)      41 (50.6%)      41 (50.6%)      +0.0%       +0.0%
   l_shape              68      31 (45.6%)      31 (45.6%)      31 (45.6%)      +0.0%       +0.0%
-  with_obstacles       92      33 (35.9%)      34 (37.0%)      35 (38.0%)      +6.1%       +2.9%
+  with_obstacles      112      43 (38.4%)      41 (36.6%)      43 (38.4%)      +0.0%       +4.9%
   ragged               26       7 (26.9%)       8 (30.8%)       8 (30.8%)     +14.3%       +0.0%
   large_15x15         225     113 (50.2%)     113 (50.2%)     113 (50.2%)      +0.0%       +0.0%
 ```
@@ -119,7 +152,7 @@ Now run `demo_cactus.py` on the same land, and it says the opposite:
 **+0.0%.** For cactus on open ground the checkerboard people already build *is*
 the optimum, and the solver only confirms it. Worse: a player with no pattern at
 all — sweeping the field, planting wherever it is legal — ties the optimum on four
-of the five terrains. The exact solver's best win over that player is **+2.9%, on
+of the five terrains. The exact solver's best win over that player is **+4.9%, on
 one map**.
 
 And wheat, the third, closes the case:
@@ -129,7 +162,7 @@ And wheat, the third, closes the case:
   --------------  ----  -------------  -------------  -------------  --------  ----------
   rectangle_9x9     81     80 (98.8%)     80 (98.8%)     80 (98.8%)     +0.0%       +0.0%
   l_shape           68     66 (97.1%)     66 (97.1%)     66 (97.1%)     +0.0%       +0.0%
-  with_obstacles    92     88 (95.7%)     88 (95.7%)     88 (95.7%)     +0.0%       +0.0%
+  with_obstacles   112    108 (96.4%)    108 (96.4%)    108 (96.4%)     +0.0%       +0.0%
   ragged            26     25 (96.2%)     25 (96.2%)     25 (96.2%)     +0.0%       +0.0%
   large_15x15      225    221 (98.2%)    221 (98.2%)    221 (98.2%)     +0.0%       +0.0%
   two_fields       324    320 (98.8%)    320 (98.8%)    320 (98.8%)     +0.0%       +0.0%
@@ -141,7 +174,7 @@ So the three crops bracket the answer, and none of the brackets are wide:
 | Crop | What the rule is | What the solver is worth |
 |------|------------------|--------------------------|
 | Sugarcane | a **trade** — water costs 1, feeds 4 | **+4–7%** over a thinking player |
-| Cactus | **exclusion** — no two may touch | **+2.9%**, on one map |
+| Cactus | **exclusion** — no two may touch | **+4.9%**, on one map |
 | Wheat | **covering** — water costs 1, feeds 80 | **+0.0%** on 6 of 7 maps |
 
 The pattern is not subtle: exact optimisation pays exactly where the rule creates
@@ -177,8 +210,17 @@ its correctness is purely local.
 **The 1x2 stripes are efficient and brittle.** One water stripe per two rows of
 cane is exactly cane's reach, and it lands at 2/3 on open ground — genuinely good.
 But it assumes open ground. Drop it on `with_obstacles` and it falls from 66.7%
-to 56.5%, because a `#` sitting on a stripe strands the cane that stripe was
-feeding. The checkerboard, meanwhile, holds 50.0%.
+to 60.7%: a `#` sitting on a stripe strands the cane that stripe was feeding, and
+the stripe itself is paid for regardless. The checkerboard, meanwhile, holds 50.0%
+— it was never relying on the terrain being tidy.
+
+The stripes are also brittle about *shape*, which is easy to miss and easy to
+strawman with. Their period is 3, so they only tile a field whose width is 1 (mod
+3). `with_obstacles` is 11 wide for exactly that reason. At 10 the last stripe
+falls short and a whole column dies — ten tiles of good ground with no rock near
+them — and the solver would post a 30% win that was really a fact about the field
+size, not the pattern. Picking the field a pattern was built for is part of giving
+it a fair fight.
 
 That trade — safe-but-wasteful against efficient-but-brittle — is the thing a
 template cannot escape and a solver never faces. The optimiser holds ~75% on every
@@ -200,7 +242,7 @@ obstacles make that choice wrong *locally*.
 **And a player who uses no pattern beats the pattern.** Sweeping the field and
 planting wherever it is legal commits to nothing, so it adapts to walls that a
 checkerboard cannot. That greedy sweep ties the exact optimum on four of five
-terrains; the solver's entire advantage over it is +2.9%, once.
+terrains; the solver's entire advantage over it is +4.9%, once.
 
 So the honest summary is not "always optimise". It is: **for sugarcane the solver
 buys a few percent over a thoughtful player; for cactus, almost nothing; for
@@ -217,7 +259,7 @@ worth stating plainly:
   its holes and it simply *is* the checkerboard. The +64% was fiction.
 - Every demo measured the solver against *patterns*, when a player who follows no
   pattern does better than any of them. That alone cut sugarcane's headline from
-  13–31% down to 4–7%, and cactus's from +33% to +0%.
+  13–29% down to 4–7%, and cactus's from +33% to +0%.
 - Wheat's 9-lattice scores 252 on `two_fields` if you stamp it and walk away, and
   320 — the proven optimum — if you repair it the way anyone standing in the field
   would. The unrepaired version would have advertised +27%.
@@ -507,13 +549,15 @@ mcfarm_opt/
 │   ├── base.py      #   Solver protocol
 │   └── ilp.py       #   exact, via CP-SAT
 ├── io/
-│   └── text.py      # parse / render
+│   ├── text.py      # parse / render as text
+│   └── svg.py       # render as an image, in the logo's style
 └── ...
 examples/
 ├── _shared.py          # terrains + print plumbing. not worth reading.
 ├── demo_sugarcane.py   # runnable, commented as documentation
 ├── demo_cactus.py      # ditto, and it argues the opposite case
-└── demo_wheat.py       # ditto, and it argues the case most against us
+├── demo_wheat.py       # ditto, and it argues the case most against us
+└── generate_readme_images.py   # redraws the Results section above
 ```
 
 `core/variables.py` is the one module not in the original design sketch. It holds
@@ -527,7 +571,7 @@ from importing solvers or vice versa.
 python -m pytest
 ```
 
-543 tests. The interesting ones are in `tests/test_sugarcane.py::TestAgainstBruteForce`:
+570 tests. The interesting ones are in `tests/test_sugarcane.py::TestAgainstBruteForce`:
 they check the CP-SAT model against an **exhaustive enumeration of every possible
 water placement**, written in `tests/conftest.py` and sharing no code with the
 library. That tests the model against the definition of the problem rather than
@@ -564,5 +608,7 @@ drifts, either the claim or the model is wrong.
 
 - Melons, mushrooms, nether wart (the interface is ready; the rules are not written)
 - Heuristic solvers for terrains too large to solve exactly
-- Graphical visualisation
+- PNG export from the library itself — `render_layout_svg` covers the images above,
+  and `examples/generate_readme_images.py` rasterises them with whatever browser is
+  lying around rather than making the project depend on a renderer
 - Schematic export

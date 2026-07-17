@@ -389,13 +389,26 @@ class TestCactusBaselines:
     def test_the_solvers_best_win_over_a_greedy_player_is_tiny(self):
         """with_obstacles is the only terrain where the solver beats greedy at all.
 
-        35 vs 34 -- under 3%. That single number is the cactus demo's thesis.
+        43 vs 41 -- under 5%. That single number is the cactus demo's thesis.
         """
         grid = parse_grid(shared.TERRAINS["with_obstacles"])
         greedy = cactus_demo.baseline_greedy(grid)
         optimal = optimize(shared.TERRAINS["with_obstacles"], crop=Cactus())
-        assert greedy.metrics.n_crop == 34
-        assert optimal.metrics.n_crop == 35
+        assert greedy.metrics.n_crop == 41
+        assert optimal.metrics.n_crop == 43
+
+    def test_the_checkerboard_ties_the_optimum_on_rocky_ground_too(self):
+        """A consequence of widening with_obstacles from 10 to 11 worth pinning.
+
+        On the old 10-wide field the checkerboard lost here and the greedy sweep
+        won; at 11 it is the other way round. Neither is a deep fact about
+        cactus -- both are within a couple of cells of optimal, which is the
+        actual point.
+        """
+        grid = parse_grid(shared.TERRAINS["with_obstacles"])
+        hand = cactus_demo.baseline_checkerboard(grid)
+        optimal = optimize(shared.TERRAINS["with_obstacles"], crop=Cactus())
+        assert hand.metrics.n_crop == optimal.metrics.n_crop == 43
 
     def test_the_greedy_sweep_beats_the_checkerboard_on_rocky_ground(self):
         """No pattern beats a pattern once walls are involved.

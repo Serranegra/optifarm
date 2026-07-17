@@ -9,6 +9,7 @@ Note:
 
 from __future__ import annotations
 
+from mcfarm_opt.io.svg import PALETTE, BlockStyle, render_layout_svg
 from mcfarm_opt.io.text import (
     FREE_SYMBOL,
     OBSTACLE_SYMBOL,
@@ -20,7 +21,10 @@ from mcfarm_opt.io.text import (
 __all__ = [
     "FREE_SYMBOL",
     "OBSTACLE_SYMBOL",
+    "PALETTE",
+    "BlockStyle",
     "parse_grid",
     "render_grid",
     "render_layout",
+    "render_layout_svg",
 ]
