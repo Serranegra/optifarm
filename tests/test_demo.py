@@ -26,6 +26,7 @@ import pytest
 from mcfarm_opt import (
     BlockType,
     Cactus,
+    Melon,
     Sugarcane,
     Wheat,
     optimize,
@@ -36,6 +37,7 @@ from mcfarm_opt.io.svg import CACTUS_PALETTE
 
 from .conftest import (
     assert_valid_cactus,
+    assert_valid_melon,
     assert_valid_sugarcane,
     assert_valid_wheat,
     baseline,
@@ -72,6 +74,7 @@ import _shared as shared  # noqa: E402
 cane_demo = _load("demo_sugarcane")
 cactus_demo = _load("demo_cactus")
 wheat_demo = _load("demo_wheat")
+melon_demo = _load("demo_melon")
 # Not a demo, but it owns a terrain and two layouts the README prints as
 # pictures, so its claims get pinned here with everything else's.
 images = _load("generate_readme_images")
@@ -138,6 +141,9 @@ class TestEachDemoFixesItsCrop:
 
     def test_wheat_demo_grows_wheat(self):
         assert isinstance(wheat_demo.CROP, Wheat)
+
+    def test_melon_demo_grows_melon(self):
+        assert isinstance(melon_demo.CROP, Melon)
 
 
 class TestBaselinesLeaveNothingOnTheTable:
@@ -604,7 +610,7 @@ class TestWheatBaselines:
         assert wheat_demo.baseline_lattice(grid).metrics.n_crop == optimal.metrics.n_crop
         assert wheat_demo.baseline_greedy(grid).metrics.n_crop == optimal.metrics.n_crop
 
-    def test_the_readme_s_wheat_tie_is_two_different_layouts_scoring_the_same(self):
+    def test_the_readme_s_wheat_tie_is_a_choice_among_many_optimal_layouts(self):
         """The README's open-ground wheat tie, pinned -- both halves of it.
 
         The obvious terrain for this pair would be `rectangle_9x9`, and it is
@@ -614,19 +620,47 @@ class TestWheatBaselines:
         pins that). `two_fields` is that same forced answer four times, one per
         quadrant of its wall cross.
 
-        The open 15x15 is a real tie. Both place four sources, both score 221, and
-        the layouts still differ -- which is exactly the paragraph's claim, so both
-        halves are asserted: same score, *not* the same picture. If they ever
-        collapsed into one layout the pair would be illustrating the degenerate
-        case again without anyone noticing.
+        The open 15x15 is a real tie: four sources, 221 crop, and *many* layouts
+        achieving it. That multiplicity is the half worth asserting, because it is
+        what makes the pair worth printing -- if the terrain ever collapsed to a
+        single legal answer the README would be illustrating the degenerate case
+        again without anyone noticing.
+
+        Asserted by exhibiting the optima rather than by comparing the hand
+        picture against the solver's. `hand.render() != optimal.render()` looks
+        like the same claim and is not: with the optimum tied 16 ways, CP-SAT's
+        parallel portfolio is free to return the hand lattice's own arrangement,
+        and roughly one run in six did. Which tied layout comes back is not
+        reproducible -- see the Note in ``mcfarm_opt.__init__`` -- so the test
+        counts optima instead, and the count does not depend on the search.
+
+        The witnesses are the demo's own 9-lattice, slid to each alignment a
+        player might slide it to. Sixteen of the 81 cover the field; the four
+        row offsets and four column offsets that work are exactly those putting
+        both sources within reach of the edges (rows 1-4, paired nine apart).
         """
         terrain = wheat_demo.TERRAINS["large_15x15"]
-        hand = baseline(wheat_demo.baseline_lattice, parse_grid(terrain))
+        grid = parse_grid(terrain)
+        hand = baseline(wheat_demo.baseline_lattice, grid)
         optimal = solve(terrain, Wheat())
 
         assert hand.metrics.n_crop == optimal.metrics.n_crop == 221
         assert hand.metrics.n_support == optimal.metrics.n_support == 4
-        assert hand.render() != optimal.render(), "the pair is pointless if they coincide"
+
+        optima = set()
+        for row_offset in range(9):
+            for col_offset in range(9):
+                water = wheat_demo._apply_lattice(grid, row_offset, col_offset)
+                if not water:
+                    continue
+                slid = shared.build_layout(grid, wheat_demo._assignment(grid, water), "9-lattice")
+                if (slid.metrics.n_crop, slid.metrics.n_support) != (221, 4):
+                    continue
+                assert_valid_wheat(slid)  # a witness has to be a layout you could build
+                optima.add(slid.render())
+
+        assert len(optima) == 16, "the tie is the point; one answer would make the pair pointless"
+        assert hand.render() in optima, "the README's hand picture is one of those optima"
 
     def test_the_wheat_terrains_the_readme_rejected_are_the_degenerate_ones(self):
         """Why `rectangle_9x9` is not the tie picture, asserted rather than asserted-in-prose.
@@ -870,3 +904,192 @@ class TestOutput:
         assert "rectangle_9x9" in out and "ragged" in out
         assert "vs check" in out and "vs greedy" in out
         assert "+0.0%" in out, "the tie is the cactus demo's headline"
+
+
+MELON_TERRAIN_NAMES = list(melon_demo.TERRAINS)
+
+
+class TestMelonTerrains:
+    def test_melon_extends_the_shared_terrains_rather_than_replacing_them(self):
+        """Melon keeps the shared land -- the ties on it are half the argument --
+        and adds two terrains whose *parity* is broken, which is the property
+        melon suffers from and none of the shared ones have."""
+        assert set(shared.TERRAINS) < set(melon_demo.TERRAINS)
+        assert set(melon_demo.MELON_TERRAINS) == {"rubble", "pockets"}
+
+    def test_the_configured_terrain_is_a_real_key(self):
+        assert melon_demo.TERRAIN in melon_demo.TERRAINS
+
+    def test_it_borrows_wheats_rubble_unchanged(self):
+        """Same land, so the two crops can be read against each other on it. If
+        either copy drifts the comparison stops meaning anything."""
+        assert melon_demo.TERRAINS["rubble"] == wheat_demo.TERRAINS["rubble"]
+
+
+class TestMelonBaselinesAreNotStrawmen:
+    """The melon demo's headline is a percentage over a hand-built layout, so the
+    hand-built layout has to be one somebody would actually build.
+
+    The trap here is melon's own. Stamping stripes onto rubble strands about
+    twenty cells that any player would pair up by shoving neighbours along, and
+    quoting the solver against *that* would invent most of the win -- the raw
+    patterns score 45 and 46 on rubble where the same water supports 49. The
+    demo therefore reports against ``Reworked``, and these tests are what stop
+    that column from quietly weakening.
+    """
+
+    @pytest.mark.parametrize("name", MELON_TERRAIN_NAMES)
+    def test_the_reworked_baseline_is_a_valid_melon_farm(self, name):
+        """A baseline that cheated the rules would beat the solver for free."""
+        grid = parse_grid(melon_demo.TERRAINS[name])
+        assert_valid_melon(baseline(melon_demo.baseline_best, grid))
+
+    @pytest.mark.parametrize("name", MELON_TERRAIN_NAMES)
+    def test_no_further_pair_can_be_squeezed_in(self, name):
+        """Maximality, asserted directly: no two unused adjacent cells are left.
+
+        This is the melon spelling of "the baseline leaves nothing on the table".
+        Two bare cells side by side are a stem and its melon going spare, and a
+        player would have taken them.
+        """
+        grid = parse_grid(melon_demo.TERRAINS[name])
+        layout = baseline(melon_demo.baseline_best, grid)
+        for cell in grid.free_cells():
+            if layout.block_at(cell) is not BlockType.EMPTY:
+                continue
+            for neighbor in grid.neighbors(cell):
+                assert layout.block_at(neighbor) is not BlockType.EMPTY, (
+                    f"rework on {name} left an unplanted pair at {cell}/{neighbor}"
+                )
+
+    @pytest.mark.parametrize("name", MELON_TERRAIN_NAMES)
+    def test_reworking_never_loses_ground_to_the_raw_pattern(self, name):
+        """Rearranging pairs is an improvement step; it cannot go backwards."""
+        grid = parse_grid(melon_demo.TERRAINS[name])
+        best = baseline(melon_demo.baseline_best, grid)
+        for build in (melon_demo.baseline_stripes, melon_demo.baseline_checkerboard):
+            raw = baseline(build, grid)
+            assert best.metrics.n_crop >= raw.metrics.n_crop
+
+    @pytest.mark.parametrize("name", MELON_TERRAIN_NAMES)
+    def test_the_solver_never_loses_to_a_baseline(self, name):
+        grid = parse_grid(melon_demo.TERRAINS[name])
+        optimal = solve(melon_demo.TERRAINS[name], Melon())
+        for build in (
+            melon_demo.baseline_stripes,
+            melon_demo.baseline_checkerboard,
+            melon_demo.baseline_best,
+        ):
+            assert optimal.metrics.n_crop >= baseline(build, grid).metrics.n_crop
+
+
+class TestMelonDemoClaims:
+    """The numbers the module docstring and ``run_all`` print in prose."""
+
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [
+            ("rectangle_9x9", 40),
+            ("l_shape", 33),
+            ("with_obstacles", 54),
+            ("ragged", 12),
+            ("large_15x15", 110),
+            ("rubble", 53),
+            ("pockets", 83),
+        ],
+    )
+    def test_the_optima_are_what_the_demo_says(self, name, expected):
+        assert solve(melon_demo.TERRAINS[name], Melon()).metrics.n_crop == expected
+
+    @pytest.mark.parametrize(
+        "name", ["rectangle_9x9", "l_shape", "with_obstacles", "ragged", "large_15x15"]
+    )
+    def test_the_hand_player_ties_on_five_of_seven(self, name):
+        """The demo's first claim, and the one that keeps it honest: melon on
+        ground that is not actively hostile is stripes, and stripes are right."""
+        grid = parse_grid(melon_demo.TERRAINS[name])
+        optimal = solve(melon_demo.TERRAINS[name], Melon())
+        assert baseline(melon_demo.baseline_best, grid).metrics.n_crop == optimal.metrics.n_crop
+
+    @pytest.mark.parametrize(("name", "hand", "optimal"), [("rubble", 49, 53), ("pockets", 81, 83)])
+    def test_the_two_it_loses_are_the_rubble(self, name, hand, optimal):
+        grid = parse_grid(melon_demo.TERRAINS[name])
+        assert baseline(melon_demo.baseline_best, grid).metrics.n_crop == hand
+        assert solve(melon_demo.TERRAINS[name], Melon()).metrics.n_crop == optimal
+
+    @pytest.mark.parametrize("name", ["rubble", "pockets"])
+    def test_the_whole_gap_is_the_water(self, name):
+        """The demo's real claim, and the only one worth a solver.
+
+        Hand the hand-player the solver's *water set* and let them rework from
+        it: they reach the solver's stem count exactly. So the gap is not in the
+        pairing -- people are good at pairing -- it is in having dug ponds on
+        cells that were never going to grow anything, to rebalance the
+        chessboard the pairs live on.
+
+        If this ever fails, the demo's explanation is wrong even if its table is
+        still right, which is the sort of rot no percentage would reveal.
+        """
+        terrain = melon_demo.TERRAINS[name]
+        grid = parse_grid(terrain)
+        optimal = solve(terrain, Melon())
+
+        solver_water = set(optimal.cells_with(BlockType.WATER))
+        pairs = melon_demo._rework(
+            grid,
+            solver_water,
+            melon_demo._pair_up(
+                grid, solver_water, sorted(grid.free_cells()), melon_demo.ORTHOGONAL_STEPS
+            ),
+        )
+        assert len(pairs) == optimal.metrics.n_crop
+
+    @pytest.mark.parametrize("name", ["rubble", "pockets"])
+    def test_the_solver_digs_more_water_than_a_lattice_needs(self, name):
+        """The mechanism behind the gap above, stated on its own.
+
+        A lattice digs the fewest sources that hydrate everything. The solver
+        digs more -- and the extra ones hydrate nothing new, because everything
+        was already wet. They are there to absorb cells of the stranded
+        chessboard colour, which is worth more than leaving them bare.
+        """
+        terrain = melon_demo.TERRAINS[name]
+        grid = parse_grid(terrain)
+        lattice = melon_demo._water_lattice(grid)
+        solver_water = len(solve(terrain, Melon()).cells_with(BlockType.WATER))
+        assert solver_water > len(lattice)
+        # and the lattice really did already cover the field
+        assert not set(grid.free_cells()) - melon_demo._hydrated_by(grid, lattice) - lattice
+
+
+class TestMelonDemoOutput:
+    def test_run_one_prints_the_layouts_and_the_comparison(self, capsys):
+        melon_demo.run_one("ragged")
+        out = capsys.readouterr().out
+        assert "Melon on ragged" in out
+        assert "stems" in out and "melons" in out
+        assert "Reworked" in out
+
+    def test_the_metrics_split_melons_out_from_water(self, capsys):
+        """Rolling them into one 'support' line would hide that the fruit is
+        what most of the field is spent on."""
+        melon_demo.run_one("ragged")
+        out = capsys.readouterr().out
+        assert "melons" in out
+        assert "water" in out
+
+    def test_melon_summary_table(self, capsys, monkeypatch):
+        monkeypatch.setattr(
+            melon_demo,
+            "TERRAINS",
+            {k: v for k, v in melon_demo.TERRAINS.items() if k != "large_15x15"},
+        )
+        melon_demo.run_all()
+        out = capsys.readouterr().out
+        assert "rubble" in out and "pockets" in out
+        assert "Reworked" in out and "vs best" in out
+        assert "+0.0%" in out, "the ties are half the melon demo's argument"
+
+    def test_main_runs_end_to_end(self, capsys):
+        melon_demo.main()
+        assert "efficiency" in capsys.readouterr().out

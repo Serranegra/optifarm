@@ -21,6 +21,7 @@ from mcfarm_opt import (
     CropRule,
     FarmLayout,
     Grid,
+    Melon,
     Neighborhood,
     Sugarcane,
     Wheat,
@@ -60,6 +61,7 @@ _CROP_TYPES: dict[str, type[CropRule]] = {
     "sugarcane": Sugarcane,
     "cactus": Cactus,
     "wheat": Wheat,
+    "melon": Melon,
 }
 
 
@@ -211,6 +213,80 @@ def brute_force_cactus_optimum(text: str, *, max_free: int = 16) -> int:
     return 0
 
 
+def _max_matching(edges: dict[tuple[int, int], list[tuple[int, int]]]) -> int:
+    """Return the size of a maximum matching, by augmenting paths (Kuhn's).
+
+    ``edges`` maps each cell of one side of the bipartition to the cells of the
+    other side it may pair with. The grid graph is bipartite -- colour it like a
+    chessboard -- so callers split on ``(r + c) % 2`` and pass one colour in.
+
+    Written out here rather than imported because it is half of melon's oracle,
+    and an oracle that borrowed the library's reasoning would be checking the
+    model against itself.
+    """
+    partner: dict[tuple[int, int], tuple[int, int]] = {}
+
+    def augment(cell: tuple[int, int], seen: set[tuple[int, int]]) -> bool:
+        for other in edges[cell]:
+            if other in seen:
+                continue
+            seen.add(other)
+            if other not in partner or augment(partner[other], seen):
+                partner[other] = cell
+                return True
+        return False
+
+    return sum(augment(cell, set()) for cell in edges)
+
+
+def brute_force_melon_optimum(text: str, *, max_free: int = 12) -> int:
+    """Return the true maximum melon-stem count, by exhaustive enumeration.
+
+    Tries every subset of the free cells as the water set. For each, the stems
+    and their fruit form a **matching** on the remaining cells: an orthogonal
+    pair may be used when at least one of the two is hydrated, since that one
+    becomes the stem and the other takes the melon. The best layout for that
+    water set is the maximum matching, which the chessboard colouring makes a
+    bipartite problem.
+
+    Note this is genuinely two nested searches, which is why the cap is tighter
+    than sugarcane's: melon is a covering problem *and* a matching problem, and
+    unlike wheat it has no closed form to check against instead.
+
+    Raises:
+        ValueError: if the terrain has more than ``max_free`` free cells.
+    """
+    free = _check_size(text, max_free)
+    free_set = set(free)
+    best = 0
+
+    for size in range(len(free) + 1):
+        for water in combinations(free, size):
+            water_set = set(water)
+            usable = free_set - water_set
+            hydrated = {
+                (r, c)
+                for (r, c) in usable
+                if any(max(abs(r - wr), abs(c - wc)) <= 4 for (wr, wc) in water_set)
+            }
+            if not hydrated:
+                continue
+            # One side of the chessboard; every edge crosses to the other.
+            edges = {
+                (r, c): [
+                    (r + dr, c + dc)
+                    for dr, dc in ORTHOGONAL_STEPS
+                    if (r + dr, c + dc) in usable
+                    # the pair is only usable if one end can hold the stem
+                    and ((r, c) in hydrated or (r + dr, c + dc) in hydrated)
+                ]
+                for (r, c) in usable
+                if (r + c) % 2 == 0
+            }
+            best = max(best, _max_matching(edges))
+    return best
+
+
 def assert_valid_sugarcane(layout: FarmLayout) -> None:
     """Assert the layout obeys every sugarcane rule.
 
@@ -297,6 +373,65 @@ def assert_valid_cactus(layout: FarmLayout) -> None:
 
     metrics = layout.metrics
     assert metrics.n_crop == len(layout.cells_with(BlockType.CROP))
+    assert metrics.n_obstacle == len(layout.cells_with(BlockType.OBSTACLE))
+    assert metrics.n_cells == len(grid)
+
+
+def assert_valid_melon(layout: FarmLayout) -> None:
+    """Assert the layout obeys every melon rule.
+
+    Three things, the third being the one melon exists to test:
+
+    * obstacles untouched, free cells not turned into obstacles;
+    * every stem has water within Chebyshev distance 4, exactly as wheat does;
+    * every stem can be given a melon of its **own**. Checked by matching the
+      stems against their adjacent melons and demanding the matching be
+      perfect -- an assertion that each stem merely *touches* a melon would pass
+      on the very layout the pairing constraint exists to forbid, two stems
+      either side of one fruit.
+    """
+    grid = layout.grid
+    stems: list[tuple[int, int]] = []
+    melons: set[tuple[int, int]] = set()
+
+    for cell in grid.cells():
+        block = layout.block_at(cell)
+
+        if grid.is_obstacle(cell):
+            assert block is BlockType.OBSTACLE, f"obstacle at {cell} was overwritten with {block}"
+            continue
+        assert block is not BlockType.OBSTACLE, f"free cell {cell} was turned into an obstacle"
+
+        if block is BlockType.CROP:
+            in_range = grid.neighbors(cell, Neighborhood.DIAGONAL, 4)
+            assert any(layout.block_at(n) is BlockType.WATER for n in in_range), (
+                f"melon stem at {cell} has no water within 4 blocks"
+            )
+            stems.append((cell.row, cell.col))
+        elif block is BlockType.MELON:
+            melons.add((cell.row, cell.col))
+
+    assert len(melons) == len(stems), (
+        f"{len(stems)} stems but {len(melons)} melons; the pairing is not a bijection"
+    )
+
+    # Stems and melons are disjoint by construction, so they are already the two
+    # sides of the bipartition and the matching can be taken as it stands.
+    edges = {
+        stem: [
+            (stem[0] + dr, stem[1] + dc)
+            for dr, dc in ORTHOGONAL_STEPS
+            if (stem[0] + dr, stem[1] + dc) in melons
+        ]
+        for stem in stems
+    }
+    assert _max_matching(edges) == len(stems), (
+        "some stem cannot be given a melon of its own -- two stems are sharing one fruit"
+    )
+
+    metrics = layout.metrics
+    assert metrics.n_crop == len(stems)
+    assert metrics.n_support == len(layout.cells_with(BlockType.WATER)) + len(melons)
     assert metrics.n_obstacle == len(layout.cells_with(BlockType.OBSTACLE))
     assert metrics.n_cells == len(grid)
 

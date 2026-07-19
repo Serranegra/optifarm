@@ -39,6 +39,12 @@ class BlockType(Enum):
     CROP = "C"
     """The harvested crop itself. This is what the objective counts."""
 
+    MELON = "M"
+    """A grown melon. Unlike sand or farmland, this block sits *beside* the crop
+    rather than under it: a melon stem grows its fruit onto an adjacent cell, so
+    the fruit occupies a cell of its own and the model must place it. See
+    :mod:`mcfarm_opt.crops.melon`."""
+
     @property
     def symbol(self) -> str:
         """The character used to render this block in a text grid."""
@@ -67,5 +73,5 @@ class BlockType(Enum):
 
 
 _SOLID: frozenset[BlockType] = frozenset(
-    {BlockType.OBSTACLE, BlockType.SAND, BlockType.FARMLAND, BlockType.CROP}
+    {BlockType.OBSTACLE, BlockType.SAND, BlockType.FARMLAND, BlockType.CROP, BlockType.MELON}
 )

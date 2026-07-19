@@ -8,10 +8,11 @@
 Give it a terrain and a crop; it returns the block placement that maximises
 production, and a proof that nothing better exists — via an OR-Tools CP-SAT model.
 
-Implements **sugarcane**, **cactus** and **wheat** — three rules that disagree
-about everything (cane needs water *beside* it, cactus needs nothing solid beside
-it, wheat needs water *within 4 in every direction*) and share every line of the
-core. Adding the next crop is a new rule file and nothing else.
+Implements **sugarcane**, **cactus**, **wheat** and **melon** — four rules that
+disagree about everything (cane needs water *beside* it, cactus needs nothing
+solid beside it, wheat needs water *within 4 in every direction*, melon needs a
+free block to grow its fruit into and will not share it) and share every line of
+the core. Adding the next crop is a new rule file and nothing else.
 
 ## Results
 
@@ -26,14 +27,14 @@ layout below is legal and comes straight out of
 
 ### On open ground, where a pattern is a fair fight
 
-Three crops, three rules, and they disagree about whether this library is worth
+Four crops, four rules, and they disagree about whether this library is worth
 running. **Sugarcane** is the one that says yes. Cane needs a water block beside
 it, water costs a cell and feeds at most four, so where the water goes is a real
 trade — and the 1×2 stripes people build overpay for it:
 
 | Traditional 1×2 pattern | optifarm optimal |
 |---|---|
-| <img src="assets/results/sugarcane_rectangle_9x9_1x2.png" width="340" alt="1x2 stripe pattern on open ground"> | <img src="assets/results/sugarcane_rectangle_9x9_optimal.png" width="340" alt="optifarm optimal sugarcane layout on open ground"> |
+| <img src="assets/results/sugarcane/rectangle_9x9_1x2.png" width="340" alt="1x2 stripe pattern on open ground"> | <img src="assets/results/sugarcane/rectangle_9x9_optimal.png" width="340" alt="optifarm optimal sugarcane layout on open ground"> |
 | 54 cane · **66.7%** of usable ground | 61 cane · **75.3%** |
 
 66.7% → **75.3%**, **+13.0%**, provably optimal — the stripes pay for a full column
@@ -47,7 +48,7 @@ layout is a checkerboard — and that is already what everybody builds:
 
 | Checkerboard by hand | optifarm optimal |
 |---|---|
-| <img src="assets/results/cactus_rectangle_9x9_checkerboard.png" width="340" alt="hand-stamped cactus checkerboard on open ground"> | <img src="assets/results/cactus_rectangle_9x9_optimal.png" width="340" alt="optifarm optimal cactus layout on open ground, identical to the checkerboard"> |
+| <img src="assets/results/cactus/rectangle_9x9_checkerboard.png" width="340" alt="hand-stamped cactus checkerboard on open ground"> | <img src="assets/results/cactus/rectangle_9x9_optimal.png" width="340" alt="optifarm optimal cactus layout on open ground, identical to the checkerboard"> |
 | 41 cactus · **50.6%** of usable ground | 41 cactus · **50.6%** |
 
 Those two images are the same file — **byte-identical**. One is
@@ -62,7 +63,7 @@ hydrates the 9×9 around it — so water is nearly free and the problem stops be
 
 | 9-lattice by hand | optifarm optimal |
 |---|---|
-| <img src="assets/results/wheat_large_15x15_lattice.png" width="340" alt="hand-built 9-lattice wheat farm on open ground: four water sources"> | <img src="assets/results/wheat_large_15x15_optimal.png" width="340" alt="optifarm optimal wheat layout on open ground: four sources, placed differently, same score"> |
+| <img src="assets/results/wheat/large_15x15_lattice.png" width="340" alt="hand-built 9-lattice wheat farm on open ground: four water sources"> | <img src="assets/results/wheat/large_15x15_optimal.png" width="340" alt="optifarm optimal wheat layout on open ground: four sources, placed differently, same score"> |
 | 221 wheat · **98.2%** of usable ground | 221 wheat · **98.2%** |
 
 Another tie — and this time the two layouts are *not* identical. Both place four
@@ -70,9 +71,27 @@ sources, in different cells, both optimal: a covering problem with slack has man
 best answers, the lattice is one and the solver found another, worth exactly the
 same. **+0.0%**, from two pictures that do not even match.
 
+**Melon** says no as well. Its stems need water like wheat's, but each one must
+also be given its own free block to grow its fruit into — so a farm is stems and
+melons in touching pairs. Lay the field out in rows, a row of stems and a row of
+beds, and you have them:
+
+| Rows by hand | optifarm optimal |
+|---|---|
+| <img src="assets/results/melon/rectangle_9x9_rows.png" width="340" alt="hand-built melon rows on open ground: pink melons each paired with a marked farmland stem"> | <img src="assets/results/melon/rectangle_9x9_optimal.png" width="340" alt="optifarm optimal melon layout on open ground, same score as the rows"> |
+| 40 stems · **49.4%** of usable ground | 40 stems · **49.4%** |
+
+The **pink** blocks are the melons — the yield. The **brown cells with a green
+mark** are the stems that grew them: farmland with something small planted in it,
+drawn quietly because a stem is not a harvest. Every stem touches exactly one
+melon, and that pairing *is* the constraint. A 9×9 is 41 cells of one chessboard
+colour and 40 of the other; the water takes the odd one out and the remaining 80
+pair off perfectly. **+0.0%**, and note the ceiling is ~50% here rather than
+wheat's 98%, because every melon costs two cells instead of one.
+
 So the honest summary is not "always optimise". For sugarcane the solver buys a few
-percent over a thoughtful player; for cactus and wheat, essentially nothing.
-[More on why, below.](#what-the-comparison-shows)
+percent over a thoughtful player; for cactus, wheat and melon, essentially nothing
+on ground like this. [More on why, below.](#what-the-comparison-shows)
 
 ### On real terrain, where no pattern fits
 
@@ -80,49 +99,61 @@ A pattern needs open ground. Put a house in the middle of the field, dig a pond,
 make the plot itself round, and there is no stripe or lattice to stamp — you have to
 fit the crop to the shape, which is the one job with no template and the job the
 solver is actually for. No hand pattern is drawn beside these, because none
-applies. The comparison worth making is between the **two crops on identical
-ground**, and it is a sharp one: the same terrain grows two completely different
+applies. The comparison worth making is between the **three crops on identical
+ground**, and it is a sharp one: the same terrain grows three completely different
 farms.
 
 **A house in the field** — 15×15 with a 5×5 building in the middle:
 
-| Sugarcane (optimal) | Cactus (optimal) |
-|---|---|
-| <img src="assets/results/sugarcane_house_optimal.png" width="340" alt="optimal sugarcane around a central house, water threaded up to the walls"> | <img src="assets/results/cactus_house_optimal.png" width="340" alt="optimal cactus around a central house, a one-cell moat of sand around the walls"> |
-| 152 cane · **76.0%** | 92 cactus · **46.0%** |
+| Sugarcane (optimal) | Cactus (optimal) | Melon (optimal) |
+|---|---|---|
+| <img src="assets/results/sugarcane/house_optimal.png" width="240" alt="optimal sugarcane around a central house, water threaded up to the walls"> | <img src="assets/results/cactus/house_optimal.png" width="240" alt="optimal cactus around a central house, a one-cell moat of sand around the walls"> | <img src="assets/results/melon/house_optimal.png" width="240" alt="optimal melon around a central house, stems and melons chequered in pairs"> |
+| 152 cane · **76.0%** | 92 cactus · **46.0%** | 98 stems · **49.0%** |
 
 Sugarcane threads water right up to the walls — an obstacle is just a cell it cannot
 use. Cactus keeps a one-block **moat** all the way around the house, the ring of
 bare sand you can see hugging it: a wall breaks a cactus exactly as another cactus
-would, so nothing may touch it. 76% against 46%, and the gap is almost entirely
-that moat.
+would, so nothing may touch it. Melon does neither: it walks straight up to the
+wall like cane, but every stem drags a melon along with it, so it chequers the
+field into pairs and lands just under half.
 
 **A pond** — the same field with a round pool dug out of the centre:
 
-| Sugarcane (optimal) | Cactus (optimal) |
-|---|---|
-| <img src="assets/results/sugarcane_pond_optimal.png" width="340" alt="optimal sugarcane around a round pond"> | <img src="assets/results/cactus_pond_optimal.png" width="340" alt="optimal cactus around a round pond, moat following the curve"> |
-| 142 cane · **75.5%** | 88 cactus · **46.8%** |
+| Sugarcane (optimal) | Cactus (optimal) | Melon (optimal) |
+|---|---|---|
+| <img src="assets/results/sugarcane/pond_optimal.png" width="240" alt="optimal sugarcane around a round pond"> | <img src="assets/results/cactus/pond_optimal.png" width="240" alt="optimal cactus around a round pond, moat following the curve"> | <img src="assets/results/melon/pond_optimal.png" width="240" alt="optimal melon around a round pond, pairs following the curve"> |
+| 142 cane · **75.5%** | 88 cactus · **46.8%** | 92 stems · **48.9%** |
 
 The round hole costs each crop what its own rule charges — cane loses roughly the
-cells the water covers, cactus loses those plus a curved moat around them.
+cells the water covers, cactus loses those plus a curved moat around them, and
+melon loses only what the pairing cannot fit around the curve.
 
 **A round field** — now the plot itself is a circle, walled off outside:
 
-| Sugarcane (optimal) | Cactus (optimal) |
-|---|---|
-| <img src="assets/results/sugarcane_round_field_optimal.png" width="340" alt="optimal sugarcane filling a circular plot"> | <img src="assets/results/cactus_round_field_optimal.png" width="340" alt="optimal cactus checkerboarding a circular plot, moat along the curved rim"> |
-| 112 cane · **75.2%** | 61 cactus · **40.9%** |
+| Sugarcane (optimal) | Cactus (optimal) | Melon (optimal) |
+|---|---|---|
+| <img src="assets/results/sugarcane/round_field_optimal.png" width="240" alt="optimal sugarcane filling a circular plot"> | <img src="assets/results/cactus/round_field_optimal.png" width="240" alt="optimal cactus checkerboarding a circular plot, moat along the curved rim"> | <img src="assets/results/melon/round_field_optimal.png" width="240" alt="optimal melon filling a circular plot with stem and melon pairs"> |
+| 112 cane · **75.2%** | 61 cactus · **40.9%** | 69 stems · **46.3%** |
 
 No rectangular pattern has an edge that follows this boundary; the solver does not
 care what shape the free cells make. Cane holds ~75% inside the disc exactly as it
 does on a square, and cactus drops to 41% here — lower than on the other two,
 because a curved wall is all moat and there is a lot of it.
 
-Look across the three: cane sits at **~75%** whatever the obstacle, cactus in the
-**mid-40s**. The terrain moves the raw counts around, but the *rule* sets the
-ceiling — and the solver hits it every time, which is the whole difference between a
-proof and a pattern.
+Look across the three crops: cane sits at **~75%** whatever the obstacle, cactus in
+the **mid-40s**, melon just under **50%**. What each rule *charges for an edge* is
+the thing the three tables actually measure, and they rank cleanly — across these
+terrains cane moves 0.8 points, melon 2.7, cactus 5.9.
+
+That order is the rules themselves. Cane only wants a neighbour, and a wall does
+not stop a cell being one, so it hardly notices. Cactus must not touch anything, so
+every metre of wall costs a full moat, and a circle is nothing but wall. Melon sits
+between: an edge strands only the odd cell its pairing cannot reach — real, but a
+cell at a time rather than a ring at a time.
+
+The terrain moves the raw counts around, but the *rule* sets the ceiling, and the
+solver hits it every time. That is the whole difference between a proof and a
+pattern.
 
 ## Quick start
 
@@ -130,11 +161,13 @@ proof and a pattern.
 python examples/demo_sugarcane.py     # +4-7% over a thinking player. worth it.
 python examples/demo_cactus.py        # +4.9% at best. barely.
 python examples/demo_wheat.py         # +0.0% on 6 of 7 maps. don't bother.
+python examples/demo_melon.py         # +0.0% on 5 of 7. +8.2% on the rubble.
 ```
 
 No arguments, nothing to write. Each solves a terrain and shows what the
-optimiser bought you over what people build by hand — and for two of the three
-crops the honest answer is *almost nothing*, which is the point. Sugarcane first:
+optimiser bought you over what people build by hand — and for three of the four
+crops the honest answer is *almost nothing* on open ground, which is the point.
+Sugarcane first:
 
 ```
 ==================================================================
@@ -251,19 +284,56 @@ And wheat, the third, closes the case:
   rubble           120    113 (94.2%)    115 (95.8%)    116 (96.7%)     +2.7%       +0.9%
 ```
 
-So the three crops bracket the answer, and none of the brackets are wide:
+And melon, the fourth, is the one that pays — but only on ground bad enough:
+
+```
+  Terrain         Free       Stripes      Checkers      Reworked       Optimal   vs best
+  --------------  ----  ------------  ------------  ------------  ------------  --------
+  rectangle_9x9     81    39 (48.1%)    40 (49.4%)    40 (49.4%)    40 (49.4%)     +0.0%
+  l_shape           68    32 (47.1%)    32 (47.1%)    33 (48.5%)    33 (48.5%)     +0.0%
+  with_obstacles   112    52 (46.4%)    52 (46.4%)    54 (48.2%)    54 (48.2%)     +0.0%
+  ragged            26    11 (42.3%)    11 (42.3%)    12 (46.2%)    12 (46.2%)     +0.0%
+  large_15x15      225   108 (48.0%)   110 (48.9%)   110 (48.9%)   110 (48.9%)     +0.0%
+  rubble           120    45 (37.5%)    46 (38.3%)    49 (40.8%)    53 (44.2%)     +8.2%
+  pockets          174    77 (44.3%)    80 (46.0%)    81 (46.6%)    83 (47.7%)     +2.5%
+```
+
+`Reworked` is the number that counts — a player who stamps rows and then shoves
+the leftovers around until nothing more fits. It ties the solver on five of seven,
+including every open terrain. Quoting the solver against the raw `Stripes` column
+instead would have manufactured most of its win, which is the trap `demo_wheat.py`
+documents and this table is arranged to avoid.
+
+The **+8.2%** on `rubble` is real, and it does not come from where you would
+guess. It is not the pairing: people are good at pairing, which is what
+`Reworked` measures. It is the **water**. Melon only has to hydrate its *stems*,
+and the fruit is half the field, so the covering problem has slack wheat never
+has — and the solver spends it on something else entirely. Stems and melons
+alternate like chessboard squares, so obstacles leave one colour in surplus and
+those cells can never be paired. A stranded cell is worthless as ground and
+perfectly good as a pond. On `rubble` the solver digs **13** water sources where a
+lattice needs 7, and the extra six hydrate nothing at all.
+
+That is testable rather than merely plausible, and it is tested: hand the
+hand-player the solver's water set, let them rework, and they reach 53 exactly
+(`test_the_whole_gap_is_the_water`). The whole margin is where the water went.
+
+So the four crops bracket the answer, and none of the brackets are wide:
 
 | Crop | What the rule is | What the solver is worth |
 |------|------------------|--------------------------|
 | Sugarcane | a **trade** — water costs 1, feeds 4 | **+4–7%** over a thinking player |
 | Cactus | **exclusion** — no two may touch | **+4.9%**, on one map |
 | Wheat | **covering** — water costs 1, feeds 80 | **+0.0%** on 6 of 7 maps |
+| Melon | **covering + matching** — every stem needs a partner | **+0.0%** on 5 of 7; **+8.2%** on rubble |
 
 The pattern is not subtle: exact optimisation pays exactly where the rule creates
-a real tension between cost and benefit. Sugarcane has one. Cactus barely does.
-Wheat has none at all — water is so cheap that the problem stops being an
-optimisation and becomes "cover the field", which people are good at. Saying so
-is the most useful thing this library does. More on that below.
+a real tension between cost and benefit. Sugarcane has one everywhere. Cactus
+barely does. Wheat has none at all — water is so cheap that the problem stops being
+an optimisation and becomes "cover the field", which people are good at. Melon has
+none on open ground and a sharp one on broken ground, because only there does it
+pay to spend a resource on fixing a parity nobody would think to look at. Saying
+which is which is the most useful thing this library does. More on that below.
 
 ## What the comparison shows
 
@@ -570,6 +640,62 @@ lattice achieves it. The bound is tight, which makes it a proof rather than an
 estimate — and a far better test oracle than brute force, since wheat's
 interesting cases start at 81 cells and `2^81` is not a number.
 
+## The melon model
+
+The first crop here that is **not** an `AdjacencyCropRule`, and the reason the
+escape hatch exists.
+
+A melon stem sits on hydrated farmland — wheat's rule exactly, the same
+`AdjacencyRequirement`, reused rather than restated — and grows its fruit onto an
+**adjacent free block**. That second half is what makes it a different problem.
+
+The tempting way to write it is "at least one adjacent empty cell", which is an
+adjacency requirement and is **wrong**. Two stems either side of a single gap
+would both count, and the layout would claim a yield the farm cannot sustain: one
+block grows one melon, and until it is harvested the other stem is stuck. Yield is
+not the number of stems that *could* fruit, it is the number that can fruit at
+once.
+
+```
+C M C     <-  what a naive "adjacent empty cell" rule scores as 2 stems.
+              One melon block. One melon. It is 1.
+```
+
+So the model pairs them explicitly: every stem is assigned one fruit block and
+every fruit block serves one stem. That is a **matching**, not a count over a
+neighbourhood, so `Melon` implements `CropRule` directly and writes the pairing
+by hand — one boolean per (stem, adjacent cell) and two equalities.
+
+```
+sum_{q in N(p)} y[p,q] = x[p, CROP]     a stem fruits into exactly one cell
+sum_{p in N(q)} y[p,q] = x[q, MELON]    a fruit block is claimed by exactly one stem
+```
+
+Read right to left those also say a cell with no stem fruits nowhere, so the `y`
+variables cannot float free and no linking constraint is needed. A stem with no
+free neighbour gets `0 = x[p, CROP]` and simply cannot be planted — correct, and
+it falls out rather than being special-cased.
+
+Every stem spends two cells, so melon runs at about **half** of wheat on the same
+ground: a 9×9 grows 80 wheat and 40 melon. `MELON` is also the first block type
+that sits *beside* a crop rather than under it, which is why it is drawn in the
+pictures above where sand and farmland never are.
+
+**Do not reuse wheat's `ceil(m/9)·ceil(n/9)` here.** That covers every cell; melon
+only has to cover its stems, and the fruit — half the field — stands on plain dirt
+and wants nothing. On an 11×11 wheat needs four sources and melon needs three. The
+covering and matching subproblems are coupled, which is why melon has no closed
+form worth quoting past the accounting identity:
+
+```
+2 * stems + water + unused = m * n
+```
+
+One consequence for anyone writing tests: at the optimum the *stem* count is
+determined but the water and unused counts often are not. An 8×8 grows 31 stems
+whether it spends its two spare cells as one water and one unused or as two water.
+Only `n_crop` is safe to assert on.
+
 ## Extending: adding a crop
 
 A crop implements `CropRule`. Most crops need no CP-SAT at all — subclass
@@ -610,16 +736,20 @@ The three shapes the interface is designed to cover:
 | Cactus    | no solid block orthogonally adjacent   | `AdjacencyRequirement({CROP, OBSTACLE}, maximum=0)`            |
 | Wheat     | water within 4 in every direction      | `AdjacencyRequirement({WATER}, DIAGONAL, radius=4, minimum=1)` |
 
-All three ship, and all three are one `requirements()` method over the same
-unmodified core — the sign, the metric and the radius are parameters, so rules
-that pull in opposite directions come out of one abstraction. Nothing about water
-or adjacency is hardcoded anywhere below `crops/`: the grid only knows about
-distance metrics, and the variables only know about "exactly one block per cell".
+All three are one `requirements()` method over the same unmodified core — the
+sign, the metric and the radius are parameters, so rules that pull in opposite
+directions come out of one abstraction. Nothing about water or adjacency is
+hardcoded anywhere below `crops/`: the grid only knows about distance metrics, and
+the variables only know about "exactly one block per cell".
 
 For a rule no declarative scheme anticipates, implement `CropRule` directly and
 write the constraints by hand — you get the model, the variables and the grid.
-`tests/test_extensibility.py::HandWrittenCrop` does exactly this to impose a global
-cap that no per-cell rule could express.
+**`Melon` is the shipped example**: its hydration half is wheat's requirement
+reused verbatim, but its stem-to-fruit pairing is a matching, which no count over
+a neighbourhood can express. (`tests/test_extensibility.py::HandWrittenCrop` does
+the same thing more cheaply, to impose a global cap.) That melon would need this
+was written into `crops/base.py`'s docstring before melon existed — the escape
+hatch was designed for it by name.
 
 ## Architecture
 
@@ -634,7 +764,8 @@ mcfarm_opt/
 │   ├── base.py      #   CropRule protocol + AdjacencyCropRule helper
 │   ├── sugarcane.py #   positive adjacency: water within 1, orthogonal
 │   ├── cactus.py    #   negative adjacency: nothing solid within 1
-│   └── wheat.py     #   radius adjacency:   water within 4, every direction
+│   ├── wheat.py     #   radius adjacency:   water within 4, every direction
+│   └── melon.py     #   not adjacency at all: a stem-to-fruit matching
 ├── solvers/         # how the model is searched
 │   ├── base.py      #   Solver protocol
 │   └── ilp.py       #   exact, via CP-SAT
@@ -647,6 +778,7 @@ examples/
 ├── demo_sugarcane.py   # runnable, commented as documentation
 ├── demo_cactus.py      # ditto, and it argues the opposite case
 ├── demo_wheat.py       # ditto, and it argues the case most against us
+├── demo_melon.py       # ditto, and it finds the one win worth having
 └── generate_readme_images.py   # redraws the Results section above
 ```
 
@@ -661,7 +793,7 @@ from importing solvers or vice versa.
 python -m pytest
 ```
 
-570 tests. The interesting ones are in `tests/test_sugarcane.py::TestAgainstBruteForce`:
+694 tests. The interesting ones are in `tests/test_sugarcane.py::TestAgainstBruteForce`:
 they check the CP-SAT model against an **exhaustive enumeration of every possible
 water placement**, written in `tests/conftest.py` and sharing no code with the
 library. That tests the model against the definition of the problem rather than
@@ -684,6 +816,13 @@ form `m*n - ceil(m/9)*ceil(n/9)`, verified against the solver on every open
 rectangle up to 19×19 — arithmetic derived from a witness argument, not from
 anything the solver said.
 
+`tests/test_melon.py` needs an oracle for two problems at once: it enumerates every
+water placement and, for each, solves a **maximum matching** for the best pairing
+that water admits. The validator matters as much — it does not merely check that
+every stem touches a melon, since that passes on exactly the shared-fruit layout
+the model exists to forbid. It matches the stems against their melons and demands
+the matching be perfect.
+
 `tests/test_demo.py` guards the demos' headline claims. Every baseline they compare
 against is checked to be a **legal** layout under its own crop's rule — using the
 same validators that check the solver's own output. A pattern claiming crop it
@@ -694,9 +833,15 @@ is feasible, so it is a lower bound by construction), and it pins the cactus
 **+0.0% tie** — that tie is the whole lesson of `demo_cactus.py`, so if it ever
 drifts, either the claim or the model is wrong.
 
+It also pins melon's *explanation*, not just its numbers. `test_the_whole_gap_is_the_water`
+gives the hand-player the solver's water set and asserts they then reach the
+solver's stem count exactly. If that ever fails, [the account above](#what-the-comparison-shows)
+of **why** the solver wins on rubble is wrong even though the table is still
+right — the kind of rot no percentage would reveal.
+
 ## Not yet implemented
 
-- Melons, mushrooms, nether wart (the interface is ready; the rules are not written)
+- Mushrooms, nether wart (the interface is ready; the rules are not written)
 - Heuristic solvers for terrains too large to solve exactly
 - PNG export from the library itself — `render_layout_svg` covers the images above,
   and `examples/generate_readme_images.py` rasterises them with whatever browser is

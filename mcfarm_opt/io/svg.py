@@ -27,6 +27,7 @@ from mcfarm_opt.core.result import FarmLayout
 
 __all__ = [
     "CACTUS_PALETTE",
+    "MELON_PALETTE",
     "PALETTE",
     "WHEAT_PALETTE",
     "BlockStyle",
@@ -73,6 +74,20 @@ PALETTE: dict[BlockType, BlockStyle] = {
     # does place them renders instead of raising.
     BlockType.SAND: BlockStyle(fill="#e0c068", highlight="#f5e6b3", shadow="#a08040"),
     BlockType.FARMLAND: BlockStyle(fill="#6b4423", highlight="#8b5a2b", shadow="#4a2f18"),
+    # The melon, and the one block that lives *beside* a crop rather than under
+    # it, so it is drawn rather than implied. It sits in the house palette rather
+    # than in MELON_PALETTE because ``dressed_for`` repaints exactly two entries
+    # and only melon places this block anyway -- there is nothing to clash with.
+    #
+    # Pink is a judgement call, and against the block's own top texture, which is
+    # green. Two arguments overrule it. This is a diagram, not a render: the job
+    # of a colour here is to be told apart, and the project already spends that
+    # argument twice (unused versus unusable, cactus versus cane). And the greens
+    # are full -- cane is mint, cactus is forest -- so a third green here would
+    # read as a shade of one of them rather than as its own block. The flesh is
+    # the part of a melon nothing else in the project shares, and the fruit is
+    # the block whose count is the result.
+    BlockType.MELON: BlockStyle(fill="#fb7185", highlight="#fecdd3", shadow="#be123c"),
 }
 
 
@@ -146,6 +161,40 @@ Example:
     >>> from mcfarm_opt import Wheat, optimize
     >>> svg = render_layout_svg(optimize("...", crop=Wheat()), palette=WHEAT_PALETTE)
     >>> "#f59e0b" in svg
+    True
+"""
+
+MELON_PALETTE: dict[BlockType, BlockStyle] = dressed_for(
+    # The stem, and it is drawn as what it is: a cell of tilled farmland with
+    # something small and green growing out of it. Wheat's exact brown for the
+    # block -- one farmland colour in the project -- and the green goes on as the
+    # highlight, so the marking reads as the plant and the cell still reads as
+    # ground. Deliberately *not* a green block: a stem is not a crop you harvest,
+    # it is the thing the melon hangs off, and drawing it as boldly as the fruit
+    # would make a melon farm look like it yields twice what it does.
+    crop=BlockStyle(fill=PALETTE[BlockType.FARMLAND].fill, highlight="#65a30d", shadow="#4a2f18"),
+    # Bare ground: the same dirt, unworked, so it is darker and flat. It has to
+    # sit next to the stem's tilled brown without being mistaken for it, which
+    # the green marking and the border do most of the work of -- this only has to
+    # stay quiet. Merged like water and sand: a stretch of dirt is a surface.
+    ground=BlockStyle(fill="#4a2f18", merge=True),
+)
+"""The house palette, dressed for a melon farm: pink fruit on marked farmland.
+
+The only picture in the project with three things to count rather than two, and
+the palette's whole job is to keep them in proportion. The **pink** melons are
+the yield and are the loudest thing on the page. The **stems** are farmland with
+a green mark -- present, countable, clearly not fruit. The **blue** is water, as
+sparse as it is for wheat.
+
+That the pink and the marked brown always come in touching pairs is not
+decoration, it *is* the constraint, and the picture is the easiest place to see
+it. Where wheat tiles a field solid, melon can only ever chequer it.
+
+Example:
+    >>> from mcfarm_opt import Melon, optimize
+    >>> svg = render_layout_svg(optimize("...", crop=Melon()), palette=MELON_PALETTE)
+    >>> "#65a30d" in svg
     True
 """
 

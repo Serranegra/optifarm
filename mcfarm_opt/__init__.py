@@ -46,6 +46,7 @@ from mcfarm_opt.crops.base import (
     ObjectiveTerm,
 )
 from mcfarm_opt.crops.cactus import Cactus
+from mcfarm_opt.crops.melon import Melon
 from mcfarm_opt.crops.sugarcane import Sugarcane
 from mcfarm_opt.crops.wheat import Wheat
 from mcfarm_opt.io.svg import render_layout_svg
@@ -65,6 +66,7 @@ __all__ = [
     "FarmMetrics",
     "Grid",
     "ILPSolver",
+    "Melon",
     "Neighborhood",
     "ObjectiveTerm",
     "SolveStatus",

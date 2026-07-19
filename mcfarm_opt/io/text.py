@@ -10,6 +10,7 @@ The output alphabet is the block symbols of :class:`~mcfarm_opt.core.blocks.Bloc
     W  water        C  crop
     .  free, unused  #  obstacle
     S  sand         F  farmland
+    M  melon
 
 Blank lines are ignored and trailing whitespace is stripped, so a grid can be
 written as an indented triple-quoted string in a test without ceremony. Rows

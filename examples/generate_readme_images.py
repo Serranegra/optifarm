@@ -2,13 +2,21 @@
 
     python examples/generate_readme_images.py
 
-Writes eighteen files to ``assets/results/``, in two groups. Six are the
-open-ground pattern comparisons -- an SVG and a PNG of the hand pattern and of the
-optimum, one field per crop. Twelve are the obstacle showcase -- sugarcane and
-cactus, optimum only, on three terrains a real farm has. Re-run it after anything
-that could move the numbers (a change to the model, the baselines, or the
-terrains) and commit whatever moves; the README quotes these figures in prose, so
-a silent drift there is a lie in the README.
+Writes thirty-four files to ``assets/results/<crop>/``, an SVG and a PNG each, in
+two groups. Eight pairs are the pattern-vs-optimum comparisons -- one open field
+per crop, the hand pattern and the optimum. Nine pairs are the obstacle showcase
+-- sugarcane, cactus and melon, optimum only, on three terrains a real farm has.
+The showcase is why the files are laid out one directory per crop rather than one
+flat folder: ``house_optimal.png`` exists under three crops with the same name,
+which is the comparison those pictures are making.
+Re-run it after anything that could move the numbers (a change to the model, the
+baselines, or the terrains) and commit whatever moves; the README quotes these
+figures in prose, so a silent drift there is a lie in the README.
+
+One caution when re-running: the solver breaks ties by whichever search worker
+finishes first, so an unrelated crop's image can change without its *number*
+changing. Check the printed tables, not the diff, before assuming something
+regressed.
 
 Why the images are generated and not drawn
 ------------------------------------------
@@ -43,6 +51,7 @@ from pathlib import Path
 
 from _shared import TERRAINS
 from demo_cactus import baseline_checkerboard
+from demo_melon import baseline_best as melon_baseline_best
 from demo_sugarcane import baseline_stripes_1x2
 from demo_wheat import TERRAINS as WHEAT_DEMO_TERRAINS
 from demo_wheat import baseline_lattice
@@ -51,6 +60,7 @@ from mcfarm_opt import (
     Cactus,
     FarmLayout,
     Grid,
+    Melon,
     Sugarcane,
     Wheat,
     optimize,
@@ -58,7 +68,7 @@ from mcfarm_opt import (
     render_layout_svg,
 )
 from mcfarm_opt.crops.base import CropRule
-from mcfarm_opt.io.svg import CACTUS_PALETTE, PALETTE, WHEAT_PALETTE
+from mcfarm_opt.io.svg import CACTUS_PALETTE, MELON_PALETTE, PALETTE, WHEAT_PALETTE
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT_DIR = ROOT / "assets" / "results"
@@ -143,9 +153,19 @@ def write_png(browser: str, svg_path: Path, png_path: Path, svg: str) -> None:
         raise RuntimeError(f"{browser} produced no PNG for {svg_path.name}")
 
 
-def write_pair(browser: str | None, name: str, svg: str) -> None:
-    """Write ``name.svg``, and ``name.png`` beside it if there is a browser."""
-    svg_path = OUT_DIR / f"{name}.svg"
+def write_pair(browser: str | None, crop: str, name: str, svg: str) -> None:
+    """Write ``<crop>/name.svg``, and ``name.png`` beside it if there is a browser.
+
+    One directory per crop, so the crop is in the path rather than repeated in
+    every filename -- ``melon/house_optimal.svg`` rather than
+    ``melon_house_optimal.svg``. It also means the obstacle showcase reads as
+    three parallel directories with the same filenames in each, which is exactly
+    the comparison those pictures are making.
+    """
+    out_dir = OUT_DIR / crop
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    svg_path = out_dir / f"{name}.svg"
     svg_path.write_text(svg, encoding="utf-8")
     print(f"  wrote {svg_path.relative_to(ROOT)}")
 
@@ -272,7 +292,7 @@ def write_comparisons(
 
         for label, layout in ((hand_label, built), ("optimal", optimal)):
             svg = render_layout_svg(layout, palette=palette)
-            write_pair(browser, f"{crop.name}_{name}_{label}", svg)
+            write_pair(browser, crop.name, f"{name}_{label}", svg)
 
         if built.render() == optimal.render():
             # The two SVGs still differ by one line -- the comment naming which
@@ -300,10 +320,13 @@ def write_showcase(
     """Draw each crop's proven optimum on obstacle terrain -- and nothing else.
 
     No hand pattern, on purpose: these are the terrains where a pattern does not
-    apply, so there is nothing legitimate to put beside the optimum. Both shipped
-    crops are drawn on identical ground instead, because *that* is the comparison
-    worth making here -- sugarcane threading water around the house, cactus holding
-    a one-cell moat from it, on the same field.
+    apply, so there is nothing legitimate to put beside the optimum. Three crops
+    are drawn on identical ground instead, because *that* is the comparison worth
+    making here -- sugarcane threading water around the house, cactus holding a
+    one-cell moat from it, melon chequering what is left into pairs, on the same
+    field. Wheat is left out: it covers essentially everything on every one of
+    these, so its picture is a solid block of crop and says nothing the others
+    do not say better.
 
     Returns:
         One ``(terrain, crop, n_crop, efficiency, n_free)`` row per crop per
@@ -312,10 +335,14 @@ def write_showcase(
     rows: list[tuple[str, str, int, float, int]] = []
 
     for name, terrain in terrains:
-        for crop, palette in ((Sugarcane(), PALETTE), (Cactus(), CACTUS_PALETTE)):
+        for crop, palette in (
+            (Sugarcane(), PALETTE),
+            (Cactus(), CACTUS_PALETTE),
+            (Melon(), MELON_PALETTE),
+        ):
             optimal = optimize(terrain, crop=crop, solver="ilp")
             svg = render_layout_svg(optimal, palette=palette)
-            write_pair(browser, f"{crop.name}_{name}_optimal", svg)
+            write_pair(browser, crop.name, f"{name}_optimal", svg)
             rows.append(
                 (
                     name,
@@ -383,6 +410,14 @@ def main() -> None:
         hand_label="lattice",
         terrains=(("large_15x15", WHEAT_DEMO_TERRAINS["large_15x15"]),),
     )
+    melon_rows = write_comparisons(
+        browser,
+        crop=Melon(),
+        palette=MELON_PALETTE,
+        hand=melon_baseline_best,
+        hand_label="rows",
+        terrains=(("rectangle_9x9", TERRAINS["rectangle_9x9"]),),
+    )
 
     # --- Second half: the solver alone, on obstacles a real farm has.
     showcase_rows = write_showcase(browser, SHOWCASE_TERRAINS)
@@ -395,6 +430,9 @@ def main() -> None:
     )
     _print_comparison_table(
         "Numbers the README must quote, wheat (vs the 9-lattice):", "9-lattice", wheat_rows
+    )
+    _print_comparison_table(
+        "Numbers the README must quote, melon (vs rows of stems and beds):", "rows", melon_rows
     )
 
     print("Numbers the README must quote, obstacle showcase (solver only):")

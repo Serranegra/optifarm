@@ -23,10 +23,11 @@ from pathlib import Path
 
 import pytest
 
-from mcfarm_opt import BlockType, Cactus, Sugarcane, Wheat, optimize, render_layout_svg
+from mcfarm_opt import BlockType, Cactus, Melon, Sugarcane, Wheat, optimize, render_layout_svg
 from mcfarm_opt.io.svg import (
     BACKGROUND,
     CACTUS_PALETTE,
+    MELON_PALETTE,
     PALETTE,
     WHEAT_PALETTE,
     BlockStyle,
@@ -195,7 +196,7 @@ class TestGeometry:
 class TestPalette:
     def test_every_block_a_shipped_crop_can_place_has_a_style(self):
         """A layout that renders as a KeyError would be worse than ugly."""
-        for crop in (Sugarcane(), Cactus(), Wheat()):
+        for crop in (Sugarcane(), Cactus(), Wheat(), Melon()):
             for block in crop.block_types() | {BlockType.EMPTY, BlockType.OBSTACLE}:
                 assert block in PALETTE, f"{crop.name} can place {block.name}"
 
@@ -305,15 +306,16 @@ class TestWheatPalette:
         differs = {b for b in BlockType if WHEAT_PALETTE[b] != PALETTE[b]}
         assert differs == {BlockType.CROP, BlockType.EMPTY}
 
-    def test_the_three_crops_are_three_colours(self):
-        """Cane, cactus and wheat all appear in the README. If any two shared a
-        fill the reader would be told they are the same plant."""
+    def test_the_four_crops_are_four_colours(self):
+        """Cane, cactus, wheat and melon all appear in the README. If any two
+        shared a fill the reader would be told they are the same plant."""
         fills = {
             PALETTE[BlockType.CROP].fill,
             CACTUS_PALETTE[BlockType.CROP].fill,
             WHEAT_PALETTE[BlockType.CROP].fill,
+            MELON_PALETTE[BlockType.CROP].fill,
         }
-        assert len(fills) == 3
+        assert len(fills) == 4
 
     def test_wheat_keeps_the_logo_s_water(self):
         """Load-bearing for the README's rubble pair, which asks the reader to
@@ -335,6 +337,78 @@ class TestWheatPalette:
         assert WHEAT_PALETTE[BlockType.CROP].fill in svg
         assert PALETTE[BlockType.CROP].fill not in svg
         assert CACTUS_PALETTE[BlockType.CROP].fill not in svg
+
+
+class TestMelonPalette:
+    """The one crop that draws two blocks, and the constraint that follows."""
+
+    def test_it_changes_the_crop_and_the_ground_and_nothing_else(self):
+        """Melon needs a *third* colour -- the fruit -- but it does not override
+        one. The melon block goes in the house palette, where the entries no
+        other crop places already live, so ``dressed_for``'s two-entry rule
+        survives a crop that draws three things."""
+        differs = {b for b in BlockType if MELON_PALETTE[b] != PALETTE[b]}
+        assert differs == {BlockType.CROP, BlockType.EMPTY}
+
+    def test_the_whole_enum_is_covered(self):
+        assert set(MELON_PALETTE) == set(BlockType)
+
+    def test_the_stem_and_the_fruit_are_told_apart(self):
+        """The pairing is the whole result, and the picture only shows it if the
+        two halves of a pair are different colours."""
+        assert MELON_PALETTE[BlockType.CROP].fill != MELON_PALETTE[BlockType.MELON].fill
+
+    def test_the_fruit_is_no_crop_s_colour(self):
+        """A melon that matched any crop's fill would read as a fifth plant."""
+        crops = {
+            PALETTE[BlockType.CROP].fill,
+            CACTUS_PALETTE[BlockType.CROP].fill,
+            WHEAT_PALETTE[BlockType.CROP].fill,
+            MELON_PALETTE[BlockType.CROP].fill,
+        }
+        assert PALETTE[BlockType.MELON].fill not in crops
+
+    def test_the_stem_is_farmland_with_a_green_marking(self):
+        """A stem is not a crop you harvest -- it is the thing the fruit hangs
+        off. So it is drawn as the ground it is: wheat's farmland brown, with the
+        green going on as a marking rather than taking over the block. Painting
+        it as boldly as the fruit would make a melon farm look like it yields
+        twice what it does."""
+        stem = MELON_PALETTE[BlockType.CROP]
+        assert stem.fill == PALETTE[BlockType.FARMLAND].fill, "one farmland brown, not two"
+        assert stem.highlight == "#65a30d", "the marking is the green part"
+        assert not stem.merge
+
+    def test_the_stem_and_the_bare_ground_are_told_apart(self):
+        """They are both dirt, and they mean different things: one is planted,
+        one is wasted. The tilled/untilled difference plus the marking has to
+        carry that."""
+        assert MELON_PALETTE[BlockType.CROP].fill != MELON_PALETTE[BlockType.EMPTY].fill
+        assert MELON_PALETTE[BlockType.EMPTY].highlight is None
+
+    def test_the_bare_ground_is_flat_and_merged(self):
+        """A stretch of dirt is a surface, not a grid of tiles -- water's
+        argument, and the same treatment sand and farmland already get."""
+        ground = MELON_PALETTE[BlockType.EMPTY]
+        assert ground.merge
+        assert ground.highlight is None and ground.shadow is None
+
+    def test_a_melon_layout_draws_both_blocks_and_no_other_crop(self):
+        svg = render_layout_svg(optimize("...\n...\n...", crop=Melon()), palette=MELON_PALETTE)
+        assert MELON_PALETTE[BlockType.CROP].fill in svg
+        assert PALETTE[BlockType.MELON].fill in svg
+        assert PALETTE[BlockType.CROP].fill not in svg
+        assert CACTUS_PALETTE[BlockType.CROP].fill not in svg
+        assert WHEAT_PALETTE[BlockType.CROP].fill not in svg
+
+    def test_stems_and_fruit_are_drawn_in_equal_numbers(self):
+        """The bijection, read straight off the picture."""
+        layout = optimize("...\n...\n...", crop=Melon())
+        svg = render_layout_svg(layout, palette=MELON_PALETTE)
+        root = ET.fromstring(svg)
+        stems = [r for r in root if r.get("fill") == MELON_PALETTE[BlockType.CROP].fill]
+        fruit = [r for r in root if r.get("fill") == PALETTE[BlockType.MELON].fill]
+        assert len(stems) == len(fruit) == 4
 
 
 class TestDressedFor:
