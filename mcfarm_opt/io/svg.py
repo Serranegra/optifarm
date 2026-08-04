@@ -32,6 +32,7 @@ __all__ = [
     "WHEAT_PALETTE",
     "BlockStyle",
     "dressed_for",
+    "iter_layout_rects",
     "render_layout_svg",
 ]
 
@@ -224,6 +225,95 @@ def _n(value: float) -> str:
     return str(int(value)) if float(value).is_integer() else f"{value:g}"
 
 
+def _grid_dimensions(rows: int, cols: int, cell: int, gap: int, margin: int) -> tuple[int, int]:
+    width = margin * 2 + cols * cell + max(cols - 1, 0) * gap
+    height = margin * 2 + rows * cell + max(rows - 1, 0) * gap
+    return width, height
+
+
+def iter_layout_rects(
+    layout: FarmLayout,
+    *,
+    cell: int = CELL,
+    gap: int = GAP,
+    margin: int = MARGIN,
+    palette: dict[BlockType, BlockStyle] | None = None,
+) -> tuple[int, int, list[tuple[float, float, float, float, str]]]:
+    """The house style's rects, without an SVG document around them.
+
+    :func:`render_layout_svg` and ``render_layout_png`` draw the same picture in
+    two different file formats, and neither should get to define the style --
+    that lives here, once, as plain geometry. Anything that changes how a layout
+    is drawn (palette, merge rule, border ratio, gap) changes this one function
+    and both renderers pick it up.
+
+    Returns:
+        A ``(width, height, rects)`` tuple. ``rects`` is a list of
+        ``(x, y, width, height, fill)``, in painter's-algorithm order: the
+        background first, then each cell's fill, then its highlight/shadow
+        border on top -- safe to draw in order with plain overwrites, no alpha
+        blending required.
+
+    Raises:
+        ValueError: if ``cell`` or ``gap`` is negative, or the palette has no
+            style for a block the layout actually uses.
+    """
+    if cell <= 0:
+        raise ValueError(f"cell must be positive, got {cell}")
+    if gap < 0:
+        raise ValueError(f"gap must be non-negative, got {gap}")
+
+    styles = palette if palette is not None else PALETTE
+    grid = layout.grid
+    rows, cols = grid.shape
+    width, height = _grid_dimensions(rows, cols, cell, gap, margin)
+    border = max(1, round(cell * _BORDER_RATIO))
+
+    rects: list[tuple[float, float, float, float, str]] = [(0, 0, width, height, BACKGROUND)]
+
+    for row in range(rows):
+        for col in range(cols):
+            here = Cell(row, col)
+            block = layout.block_at(here)
+            try:
+                style = styles[block]
+            except KeyError:
+                raise ValueError(
+                    f"no style for {block.name}; palette covers "
+                    f"{sorted(b.name for b in styles)}"
+                ) from None
+
+            x = margin + col * (cell + gap)
+            y = margin + row * (cell + gap)
+            w = h = cell
+
+            # Grow across the seam toward an identical neighbour, so a run of
+            # water reads as one sheet. Only right and down: the neighbour's own
+            # rect starts exactly where this one now ends, so runs join without
+            # overlapping.
+            if style.merge:
+                right = Cell(row, col + 1)
+                below = Cell(row + 1, col)
+                if grid.contains(right) and layout.block_at(right) is block:
+                    w += gap
+                if grid.contains(below) and layout.block_at(below) is block:
+                    h += gap
+
+            rects.append((x, y, w, h, style.fill))
+
+            # The logo's border: top and left in the highlight, then bottom and
+            # right in the shadow drawn *over* them, so the shadow takes the two
+            # shared corners. Order is load-bearing.
+            if style.highlight is not None:
+                rects.append((x, y, cell, border, style.highlight))
+                rects.append((x, y, border, cell, style.highlight))
+            if style.shadow is not None:
+                rects.append((x, y + cell - border, cell, border, style.shadow))
+                rects.append((x + cell - border, y, border, cell, style.shadow))
+
+    return width, height, rects
+
+
 def render_layout_svg(
     layout: FarmLayout,
     *,
@@ -260,66 +350,17 @@ def render_layout_svg(
         >>> svg.startswith("<svg")
         True
     """
-    if cell <= 0:
-        raise ValueError(f"cell must be positive, got {cell}")
-    if gap < 0:
-        raise ValueError(f"gap must be non-negative, got {gap}")
-
-    styles = palette if palette is not None else PALETTE
-    grid = layout.grid
-    rows, cols = grid.shape
-
-    width = margin * 2 + cols * cell + max(cols - 1, 0) * gap
-    height = margin * 2 + rows * cell + max(rows - 1, 0) * gap
-    border = max(1, round(cell * _BORDER_RATIO))
+    width, height, rects = iter_layout_rects(
+        layout, cell=cell, gap=gap, margin=margin, palette=palette
+    )
+    rows, cols = layout.grid.shape
 
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}"'
         f' shape-rendering="crispEdges">',
         f"  <!-- {layout.crop_name}: {layout.metrics.n_crop} crop on {rows}x{cols},"
         f" {layout.metrics.efficiency:.1f}% of usable ground -->",
-        f"  {_rect(0, 0, width, height, BACKGROUND)}",
     ]
-
-    for row in range(rows):
-        for col in range(cols):
-            here = Cell(row, col)
-            block = layout.block_at(here)
-            try:
-                style = styles[block]
-            except KeyError:
-                raise ValueError(
-                    f"no style for {block.name}; palette covers "
-                    f"{sorted(b.name for b in styles)}"
-                ) from None
-
-            x = margin + col * (cell + gap)
-            y = margin + row * (cell + gap)
-            w = h = cell
-
-            # Grow across the seam toward an identical neighbour, so a run of
-            # water reads as one sheet. Only right and down: the neighbour's own
-            # rect starts exactly where this one now ends, so runs join without
-            # overlapping.
-            if style.merge:
-                right = Cell(row, col + 1)
-                below = Cell(row + 1, col)
-                if grid.contains(right) and layout.block_at(right) is block:
-                    w += gap
-                if grid.contains(below) and layout.block_at(below) is block:
-                    h += gap
-
-            parts.append(f"  {_rect(x, y, w, h, style.fill)}")
-
-            # The logo's border: top and left in the highlight, then bottom and
-            # right in the shadow drawn *over* them, so the shadow takes the two
-            # shared corners. Order is load-bearing.
-            if style.highlight is not None:
-                parts.append(f"  {_rect(x, y, cell, border, style.highlight)}")
-                parts.append(f"  {_rect(x, y, border, cell, style.highlight)}")
-            if style.shadow is not None:
-                parts.append(f"  {_rect(x, y + cell - border, cell, border, style.shadow)}")
-                parts.append(f"  {_rect(x + cell - border, y, border, cell, style.shadow)}")
-
+    parts.extend(f"  {_rect(*rect)}" for rect in rects)
     parts.append("</svg>")
     return "\n".join(parts) + "\n"
