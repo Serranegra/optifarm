@@ -49,6 +49,7 @@ from mcfarm_opt.crops.cactus import Cactus
 from mcfarm_opt.crops.melon import Melon
 from mcfarm_opt.crops.sugarcane import Sugarcane
 from mcfarm_opt.crops.wheat import Wheat
+from mcfarm_opt.io.png import render_layout_png
 from mcfarm_opt.io.svg import render_layout_svg
 from mcfarm_opt.io.text import parse_grid, render_grid, render_layout
 from mcfarm_opt.solvers.base import Solver
@@ -77,6 +78,7 @@ __all__ = [
     "parse_grid",
     "render_grid",
     "render_layout",
+    "render_layout_png",
     "render_layout_svg",
 ]
 

@@ -9,6 +9,7 @@ Note:
 
 from __future__ import annotations
 
+from mcfarm_opt.io.png import render_layout_png
 from mcfarm_opt.io.svg import (
     CACTUS_PALETTE,
     PALETTE,
@@ -36,5 +37,6 @@ __all__ = [
     "parse_grid",
     "render_grid",
     "render_layout",
+    "render_layout_png",
     "render_layout_svg",
 ]
